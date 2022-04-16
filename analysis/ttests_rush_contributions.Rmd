@@ -340,14 +340,20 @@ sum_Func
 ```
 
 Want to run t-tests for each combination of metric x treatment 
+two-tailed tests to see if greater OR less than zero. 
 
 t-tests rely on exactly the same confidence intervals that we have plotted so, grazer (i.e Diversity treat A) contributions to temp var (no stressor and nutrients) are less than zero. Grazer contribution to spa var (no stressor) and predator contribution to spa var (sediment) are greater than zero.  
 ```{r}
 test<-contributions %>% 
+  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1")%>% 
   group_by(metric, Treatment) %>% 
-  summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value, 
+  summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value,  # default is two.sided 
             tval = t.test(x = LRR_metric, mu = 0)$statistic)
 
+p.adjust(test$pval [1:4],method="BH")
+p.adjust(test$pval [5:8],method="BH") # 
+p.adjust(test$pval [9:14],method="BH") # Spa.Var A_N0_S0 no longer sig
+p.adjust(test$pval [15:20],method="BH") # Temp.Var A_N1_S0 no longer sig 
 
 contributions %>% 
   filter(metric == "Resilience", Treatment== "A_N0_S1")%>% 
@@ -418,16 +424,26 @@ pred_Func<-ggplot(predict_summary, aes(x=metric, y=mean, Diversity_type)) +
 pred_Func
 ```
 
-can do t-test for predicted vs observed, for predator contribution to spa var. will check for equal variance first (is equal) so continue with standard 2 sample t test. 
+Can do t-test for predicted vs observed, again to see what is diff from zero. 
+But doesn't work cos of samples sizes for bootstrapped data. 
+
+Then for predator contribution to spa var. will check for equal variance first (is equal) so continue with standard 2 sample t test. 
 also check that predicted is different form zero... 
 ```{r}
 
+test<-predict %>% 
+  group_by(metric, Diversity, type) %>% 
+  summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value,  # default is two.sided 
+            tval = t.test(x = LRR_metric, mu = 0)$statistic)
+
 var.test(filter(predict, metric == "Spa.Var" & Diversity == "B", type == "N1_S1")$LRR_metric, filter(predict, metric == "Spa.Var" & Diversity == "B", type == "Predicted")$LRR_metric)
 
-predict %>% 
+fd<-predict %>% 
   filter(metric == "Spa.Var" & Diversity == "B")%>% 
   t_test(LRR_metric ~ type)
 
+fd$p
+p.adjust(fd$p, 'bonferroni', n = 2)
 
 predict %>% 
   filter(metric == "Spa.Var" & Diversity == "B", type == "Predicted")%>% 
@@ -727,18 +743,53 @@ t-tests rely on exactly the same confidence intervals that we have plotted so, g
 For spatial variability grazer vs predator contributions are different (for sediment) from one another despite predators not being different from zero. 
 ```{r}
 test<-contributions_Comp %>% 
+  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
   group_by(metric, Treatment) %>% 
   summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value, 
             tval = t.test(x = LRR_metric, mu = 0)$statistic)
 
 test
 
+p.adjust(test$pval [1:4],method="BH") # Resilience grazers no longer greater than zero 
+p.adjust(test$pval [5:8],method="BH")  
+p.adjust(test$pval [9:14],method="BH") 
+p.adjust(test$pval [15:20],method="BH") 
+
 var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "B_N0_S1")$LRR_metric, 
          filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S1")$LRR_metric)
 
-contributions_Comp %>% 
+test1<-contributions_Comp %>% 
   filter(metric == "Spa.Var" & Treatment == "B_N0_S1" |metric == "Spa.Var" & Treatment == "A_N0_S1" )%>% 
   t_test(LRR_metric ~ Treatment)
+
+p.adjust(test1$p, n = 3)  # 3 comparisons between grazers and predators, one for each stressor treatment. 
+
+var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S1")$LRR_metric, 
+         filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N1_S0")$LRR_metric)
+
+test2<-contributions_Comp %>% 
+  filter(metric == "Spa.Var" & Treatment == "A_N0_S1" |metric == "Spa.Var" & Treatment == "A_N1_S0" )%>% 
+  t_test(LRR_metric ~ Treatment)
+
+p.adjust(test2$p, n = 3)  # 3 comparisons between grazers stressor treatments. 
+
+var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N1_S0")$LRR_metric, 
+         filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S0")$LRR_metric)
+
+test3<-contributions_Comp %>% 
+  filter(metric == "Spa.Var" & Treatment == "A_N1_S0" |metric == "Spa.Var" & Treatment == "A_N0_S0" )%>% 
+  t_test(LRR_metric ~ Treatment)
+
+p.adjust(test3$p, n = 3)
+
+var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S1")$LRR_metric, 
+         filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S0")$LRR_metric)
+
+test4<-contributions_Comp %>% 
+  filter(metric == "Spa.Var" & Treatment == "A_N0_S1" |metric == "Spa.Var" & Treatment == "A_N0_S0" )%>% 
+  t_test(LRR_metric ~ Treatment)
+
+p.adjust(test4$p, n = 3)
 
 ```
 
@@ -825,14 +876,14 @@ predict_Comp %>%
 #  group_by(type) %>% 
 #  summarise (t_test(LRR_metric ~ 1, mu = 0))
 
-predict_Comp %>% 
+test5 <- predict_Comp %>% 
   filter(metric == "Spa.Var", Diversity== "A")%>% 
   group_by(type) %>% 
   summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value, 
             tval = t.test(x = LRR_metric, mu = 0)$statistic,
             conf = t.test(x = LRR_metric, mu = 0)$conf.int)
 
-
+p.adjust(test5$p, n = 2)
 
 
 ```

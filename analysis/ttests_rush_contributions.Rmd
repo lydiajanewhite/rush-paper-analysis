@@ -342,18 +342,23 @@ sum_Func
 Want to run t-tests for each combination of metric x treatment 
 two-tailed tests to see if greater OR less than zero. 
 
-t-tests rely on exactly the same confidence intervals that we have plotted so, grazer (i.e Diversity treat A) contributions to temp var (no stressor and nutrients) are less than zero. Grazer contribution to spa var (no stressor) and predator contribution to spa var (sediment) are greater than zero.  
+t-tests rely on the same confidence intervals that we have plotted so, grazer (i.e Diversity treat A) contributions to temp var (no stressor and nutrients) are less than zero. Grazer contribution to spa var (no stressor) and predator contribution to spa var (sediment) are greater than zero.  
+but with multiple comparisons p values are adjusted and some no longer significant. 
 ```{r}
-test<-contributions %>% 
+test_func<-contributions %>% 
   filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1")%>% 
   group_by(metric, Treatment) %>% 
   summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value,  # default is two.sided 
             tval = t.test(x = LRR_metric, mu = 0)$statistic)
 
-p.adjust(test$pval [1:4],method="BH")
-p.adjust(test$pval [5:8],method="BH") # 
-p.adjust(test$pval [9:14],method="BH") # Spa.Var A_N0_S0 no longer sig
-p.adjust(test$pval [15:20],method="BH") # Temp.Var A_N1_S0 no longer sig 
+test_func %>%  
+  group_by(metric) %>% 
+  mutate(pval.adj = p.adjust (pval, method='holm'))
+ 
+test_func <- test_func %>%  
+  group_by(metric) %>% 
+  mutate(pval.adj = p.adjust (pval, method='BH'))
+
 
 contributions %>% 
   filter(metric == "Resilience", Treatment== "A_N0_S1")%>% 
@@ -361,7 +366,16 @@ contributions %>%
             tval = t.test(x = LRR_metric, mu = 0)$statistic,
             conf = t.test(x = LRR_metric, mu = 0)$conf.int)
 
-test
+test_func <- test_func %>% 
+  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_') %>% 
+  arrange(desc(metric), Nutrients, Sediment, desc(Diversity))
+
+print.data.frame(test_func)
+test_func$tval
+
+test_func$response <- "Functional" 
+
+#write.csv(test, file = "ttest_data_function.csv")
 
 ```
 
@@ -742,18 +756,29 @@ t-tests rely on exactly the same confidence intervals that we have plotted so, g
 
 For spatial variability grazer vs predator contributions are different (for sediment) from one another despite predators not being different from zero. 
 ```{r}
-test<-contributions_Comp %>% 
+test_comp<-contributions_Comp %>% 
   filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
   group_by(metric, Treatment) %>% 
   summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value, 
             tval = t.test(x = LRR_metric, mu = 0)$statistic)
 
-test
+test_comp
 
-p.adjust(test$pval [1:4],method="BH") # Resilience grazers no longer greater than zero 
-p.adjust(test$pval [5:8],method="BH")  
-p.adjust(test$pval [9:14],method="BH") 
-p.adjust(test$pval [15:20],method="BH") 
+test_comp <- test_comp %>%  
+  group_by(metric) %>% 
+  mutate(pval.adj = p.adjust (pval, method='BH'))
+
+test_comp <- test_comp %>% 
+  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_') %>% 
+  arrange(desc(metric), Nutrients, Sediment, desc(Diversity))
+
+test_comp$response <- "Compositional" 
+  
+print.data.frame(test_comp)
+
+ttest_data<-rbind(test_func, test_comp)
+
+write.csv(ttest_data, file = "ttest_data.csv")
 
 var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "B_N0_S1")$LRR_metric, 
          filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S1")$LRR_metric)
@@ -790,6 +815,21 @@ test4<-contributions_Comp %>%
   t_test(LRR_metric ~ Treatment)
 
 p.adjust(test4$p, n = 3)
+
+
+check <-contributions_Comp %>% 
+  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
+   filter(metric == "Spa.Var") %>% 
+    t_test (LRR_metric ~ Treatment, p.adj = "BH")
+
+print.data.frame(check)
+
+contributions_Comp %>% 
+  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
+   filter(metric == "Resilience") %>% 
+    t_test (LRR_metric ~ Treatment, p.adj = "BH")
+
+
 
 ```
 

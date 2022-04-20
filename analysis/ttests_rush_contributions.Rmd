@@ -13,7 +13,8 @@ knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
 
 ```
 
-calculation of consumer contributions to stability and significance testing 
+calculation of consumer contributions to stability and significance testing. 
+Creates figures 2 & 3 from manuscript, and corresponding t-tests. 
 
 ```{r input data}
 
@@ -939,19 +940,6 @@ test5 <- predict_Comp %>%
 
 p.adjust(test5$pval, n = 4)
 
-
-predict %>% 
-  filter(metric == "Temp.Var" & Diversity == "A")%>% 
-  t_test(LRR_metric ~ type)
-
-fd$p
-p.adjust(fd$p, 'BH', n = 2)
-
-
-predict_Comp %>% 
-  group_by(metric, Diversity) %>% 
-  summarise(pval = t.test(x = LRR_metric, y = type)$p.value, 
-            tval = t.test(x = LRR_metric, y = type)$statistic)
 
 predict_Comp %>% 
   group_by(metric, Diversity) %>% 

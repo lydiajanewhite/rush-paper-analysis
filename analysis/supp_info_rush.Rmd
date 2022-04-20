@@ -1,0 +1,936 @@
+---
+title: "Calculating dimensions of stability using species abundance data in response to multiple stressors - SI analysis"
+author: "Lydia White"
+date: "`r Sys.Date()`"
+output:
+   html_document:
+     toc: true
+     toc_float: true
+     code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
+
+```
+
+Workflow for supplementary table S2 in Rush Paper 1 REVISED. 
+
+```{r input data}
+library(readr)
+data <- read_csv(here::here("data","RUSH_MACRO_Concise.csv"))
+```
+
+```{r libraries, message=FALSE}
+library(tidyverse)
+library(vegan)
+library(lsmeans)
+library(emmeans)
+library(car)
+library(lme4)
+library(lmerTest)
+library(ggh4x)
+library(patchwork)
+library(ggpubr)
+library(rstatix)
+```
+
+
+# Compare cover and composition: Intact vs caged controls
+
+First we can explore community responses to stressors in control and intact communities immediately after distubance period (so month 12)
+
+Treatments:
+A	Algae
+B	Algae & Grazers
+C	Algae, Grazers & Whelks 
+D	Uncaged control plot 
+
+N0	No Nutrients 
+N1	Enriched with Nutrients 
+S0	No Sediment
+S1	Sediment added
+
+Functional responses are based on total percentage cover of all algal species as a proxy for biomass. Total percentage cover values often exceeded 100% due to the multi-layered nature of macroalgal communities. 
+
+```{r summarise cover data, }
+data$Plot <- gsub("24\\*", "100", data$Plot)
+
+cols <-data %>% select(Fuc_Ves:Hilden) # columns of interest i.e. species
+
+functional<- data%>%
+  mutate_if(is.numeric, ~replace(., is.na(.), 0))%>%
+   mutate(sum = rowSums(cols)) %>%
+   select(Time:Treatment,sum) %>%
+    filter(Time > 5 ) %>%
+    rename(TAC = `sum`)
+
+```
+
+We compare total algal cover for disturbance treatments. Following the main analysis i have not included the multistressor treatment. 
+
+```{r intact communities, }
+
+intact<- functional%>%separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  filter(Time == 12 & Diversity == 'C' | Time == 12 & Diversity == 'D')%>%
+  filter(Disturbance  != 'N1_S1' )%>%
+  mutate(Disturbance = as_factor(Disturbance))%>%
+  mutate(Diversity = as_factor(Diversity))
+
+ggplot(intact, aes(x=Diversity, y=TAC))+
+  geom_boxplot(aes(fill = Disturbance))+
+  scale_fill_manual(values = c("#999999", "#FFCC00","#66CC00","red3"))+
+  theme_classic()+
+  scale_x_discrete(labels=c("A" = "W & G loss", "B" = "W loss", "C" = "intact", "D" = "uncaged"))
+ 
+
+mod1<-lm(log(TAC)~Diversity + Diversity:Disturbance, data = intact)
+
+par(mfrow=c(2,2))
+plot(mod1)
+par(mfrow=c(1,1))
+anova(mod1)
+
+```
+
+Compositional responses 
+
+Can simply compare communities between stressor treatments for month 12. We check for homogeneous dispersion between groups and carry out permanova. But unlike the main analysis i have included the mutlistressor treatment. 
+
+Dispersions are homogeneous but used  log10 x +1 transformation on data to keep in line with rest of anlalysis. 
+With transformation signifcant difference between sediment and multistressor treatments. If i use raw data no sig effects. 
+```{r}
+
+env<- data%>%
+  select(Plot, Time:Treatment)%>%
+  unite("Treatment_Time", Time,Treatment, remove = FALSE)%>%
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  filter(Time == 12 & Diversity == 'C'|Time == 12 & Diversity == 'D') %>%
+  filter(Disturbance  != 'N1_S1' )
+
+dat<- data%>%
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  unite("Treatment_Time", Time,Treatment, remove = FALSE)%>%
+  relocate(Diversity:Disturbance, .after = Treatment)%>%
+  filter(Time == 12 & Diversity == 'C'|Time == 12 & Diversity == 'D')%>%
+   filter(Disturbance  != 'N1_S1' )%>%
+  mutate(Time = as_factor(Time))%>%
+  mutate(Disturbance = as_factor(Disturbance))
+
+
+dist_bc <- vegdist((dat[8:42]), method = 'bray')
+disper=betadisper(dist_bc, dat$Treatment_Time)
+
+plot(disper)
+anova(disper)
+
+adonis(log10(1 + dat[8:42]) ~ Diversity + Diversity:Disturbance, data = dat, permutations = 9999)
+
+pairwise.adonis <- function(x,factors, sim.function = 'vegdist', sim.method = 'bray', p.adjust.m ='bonferroni')
+{
+
+co = combn(unique(as.character(factors)),2)
+pairs = c()
+F.Model =c()
+R2 = c()
+p.value = c()
+
+
+for(elem in 1:ncol(co)){
+if(sim.function == 'daisy'){
+library(cluster); x1 = daisy(x[factors %in% c(co[1,elem],co[2,elem]),],metric=sim.method)
+} else{x1 = vegdist(x[factors %in% c(co[1,elem],co[2,elem]),],method=sim.method)}
+
+ad = adonis(x1 ~ factors[factors %in% c(co[1,elem],co[2,elem])] );
+pairs = c(pairs,paste(co[1,elem],'vs',co[2,elem]));
+F.Model =c(F.Model,ad$aov.tab[1,4]);
+R2 = c(R2,ad$aov.tab[1,5]);
+p.value = c(p.value,ad$aov.tab[1,6])
+}
+p.adjusted = p.adjust(p.value,method=p.adjust.m)
+sig = c(rep('',length(p.adjusted)))
+sig[p.adjusted <= 0.05] <-'.'
+sig[p.adjusted <= 0.01] <-'*'
+sig[p.adjusted <= 0.001] <-'**'
+sig[p.adjusted <= 0.0001] <-'***'
+
+pairw.res = data.frame(pairs,F.Model,R2,p.value,p.adjusted,sig)
+print("Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1")
+return(pairw.res)
+
+} 
+
+```
+ without using log transformed abundance data 
+```{r}
+
+adonis((dat[8:42]) ~ Diversity*Disturbance, data = dat, permutations = 9999)
+
+```
+
+# Compare cover and composition: apriori differences between plots
+
+Compare TAC and assemblage between treatments at T0. 
+
+```{r}
+
+functional_T0<- data%>%
+  mutate_if(is.numeric, ~replace(., is.na(.), 0))%>%
+   mutate(sum = rowSums(cols)) %>%
+   select(Time:Treatment,sum) %>%
+    filter(Time == 0 ) %>%
+    rename(TAC = `sum`) %>%separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  mutate(Disturbance = as_factor(Disturbance))%>%
+  mutate(Diversity = as_factor(Diversity))
+
+ggplot(functional_T0, aes(x=Diversity, y=TAC))+
+  geom_boxplot(aes(fill = Disturbance))+
+  scale_fill_manual(values = c("#999999", "#FFCC00","#66CC00","red3"))+
+  theme_classic()+
+  scale_x_discrete(labels=c("A" = "W & G loss", "B" = "W loss", "C" = "intact", "D" = "uncaged"))
+ 
+
+mod1<-lm((TAC)~Diversity*Disturbance, data = functional_T0)
+
+par(mfrow=c(2,2))
+plot(mod1)
+par(mfrow=c(1,1))
+anova(mod1)
+
+env<- data%>%
+  select(Plot, Time:Treatment)%>%
+  unite("Treatment_Time", Time,Treatment, remove = FALSE)%>%
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  filter(Time == 0)
+
+dat<- data%>%
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  unite("Treatment_Time", Time,Treatment, remove = FALSE)%>%
+  relocate(Diversity:Disturbance, .after = Treatment)%>%
+  filter(Time == 0)%>%
+  mutate(Disturbance = as_factor(Disturbance))%>%
+  mutate(Diversity = as_factor(Diversity))
+
+
+dist_bc <- vegdist((dat[8:42]), method = 'bray')
+disper=betadisper(dist_bc, dat$Treatment_Time)
+
+plot(disper)
+anova(disper)
+
+adonis(log10(1 + dat[8:42]) ~ Diversity*Disturbance, data = dat, permutations = 9999)
+
+```
+
+# Compare stability: Intact vs caged controls
+
+Functional stability is calculated using total percentage cover of all algal species as a proxy for biomass. Total percentage cover values often exceeded 100% due to the multi-layered nature of macroalgal communities. To calculate stability values we are only interested in data following the perturbation, month 6 onwards. 
+
+## Functional stability
+
+We calculate 4 different metrics using total algal cover data from the time period following the perturbations (months 6 to 15). 
+
+### Temporal variability 
+
+Temporal variability is calculated as the coefficient of variance (CV; that is, standard deviation divided by the mean) of total algal cover in each experimental plot over time during the perturbation phase. Detrended to remove potentially confounding effects of biomass change over the duration of the experiment.
+
+We run linear models on total algal cover in each plot over time and use the residuals from these models to calculate the CV
+
+```{r format data }
+
+tmp<-functional%>%
+  select(Diversity,Plot,Time, TAC,Treatment)%>%
+  filter(Time < 13)
+
+tmp = split(tmp,tmp$Plot)  
+
+resids<-lapply(names(tmp),function(X){
+  Y <- tmp[[X]]
+  A <-residuals(lm(TAC~Time, data = Y))
+  B <-Y$Diversity
+  B2<-Y$Treatment
+  C <-Y$Time
+  D <-Y$TAC
+  E <-sd(A)/mean(D)
+  data_frame(Plot=X,Residuals=A, Diversity=B, Treatment = B2, Time=C, TAC =D, Temp.Var=E)
+})
+
+Temp_Var<-lapply(resids,function(X){
+  X[1,]
+}) %>% 
+  Reduce("rbind",.)%>% 
+  select(Plot,Diversity,Treatment,Temp.Var)
+
+```
+
+### Spatial variability 
+
+Spatial variability was calculated as the CV of total algal cover among 
+experimental plots within each stressor vs. consumer loss treatment combination on each census during the pertubation phase. Detrended to remove potentially confounding effects of biomass change over the duration of the experiment. 
+
+So we use the residuals from the previous linear regressions. 
+This time we divide SD of the residuals across plots for each time period by the mean total algal cover. 
+
+```{r}
+
+Spatial_Var<- Reduce("rbind",resids)%>%
+  select(Time,Plot,Diversity,Treatment, Residuals,TAC)%>%
+  group_by(Time, Diversity, Treatment) %>%
+  summarise(Spa.Var = sd(Residuals)/mean(TAC))
+  
+```
+
+### Resistance
+
+Resistance and resilience are associated with a perturbation, they can only be calculated by comparing algal cover in perturbed treatments to cover within unperturbed treatments. 
+
+Resistance was defined as the log response ratio (LRR) of total algal cover in a perturbed relative to unperturbed plot at th end of the perturbation phase. We calculated the LRR of total algal cover in each perturbed plot relative to the mean cover in unperturbed plots for the corresponding consumer loss treatment, for the final time point (month 12) during the perturbation phase (months 6 - 12). 
+
+```{r}
+mean_cover<-functional %>%
+   filter (Time == 12 & Nutrients == 'N0' & Sediment == 'S0') %>%
+  group_by(Diversity, Time)%>%
+  summarise(meanTAC = mean(TAC))
+  
+cover<-functional %>%
+   filter (Time == 12 ) %>%
+  select(Diversity,Treatment,Time,Plot,TAC)
+
+
+LRR_Resist<-left_join(cover,mean_cover)%>%
+  mutate(LRR_TAC = log(TAC/meanTAC))%>%
+  filter(Treatment != 'A_N0_S0' & Treatment != 'B_N0_S0' & Treatment != 'C_N0_S0' &   Treatment != 'D_N0_S0')%>%
+  rename(Resist = LRR_TAC)%>%
+ select(Plot, Diversity, Treatment, Resist)
+
+```
+
+### Resilience
+
+Resilience is the slope of linear regression of the log response ratio over time from the end of the pertubation phase to the end of the experiment. Calculating the log difference is equivalent to calculating the rate of relative return, rather than the absolute rate, rendering resilience at least conceptually independent from resistance. 
+So we run a lm on LRR in between months 12 and months 15.
+
+```{r}
+mean_cover<-functional %>%
+   filter (Time > 11 & Nutrients == 'N0' & Sediment == 'S0') %>%
+  group_by(Diversity, Time)%>%
+  summarise(meanTAC = mean(TAC))
+
+cover<-functional %>%
+   filter (Time > 11) %>%
+  select(Diversity,Treatment,Time,Plot,TAC)
+
+LRR<-left_join(cover,mean_cover)%>%
+  mutate(LRR_TAC = log(TAC/meanTAC))
+  
+Resil<-lapply(1:nrow(LRR_Resist),function(i){
+  X = LRR_Resist[i,]
+  tmp =  filter(LRR,Plot == X$Plot)
+  tmp<-lm(LRR_TAC~Time,data = tmp)
+  coef2 = tmp$coefficients["Time"]
+  data_frame(Plot=X$Plot,Resilience=coef2)
+})%>% Reduce("rbind",.)
+
+```
+
+We can compile all the stabilty measures. For the few cases where perturbations increased biomass and, therefore, resulted in a positive resistance value, resilience was then multiplied by -1.  We can plot the raw stabilty measures as boxplots. 
+
+```{r, fig.height=10}
+
+Stability_metrics<-left_join(LRR_Resist,Resil)%>%
+  mutate(Resilience = ifelse(Resist >0, Resilience*-1, Resilience))%>%
+  select(Plot,Diversity,Treatment,Resist,Resilience)%>%
+  gather(key = metric, value = value, -Diversity, -Treatment, -Plot)%>%
+  rename(rep = Plot)
+
+Temp_Var<-Temp_Var%>%
+gather(key = metric, value = value,  -Diversity, -Treatment, -Plot)%>%
+rename(rep = Plot)
+
+Spatial_Var<-Spatial_Var%>%
+gather(key = metric, value = value,  -Diversity, -Treatment, -Time)%>%
+rename(rep = Time )%>%
+ungroup(rep)%>%
+mutate(rep = as.factor(rep))
+
+x <-rbind(Stability_metrics, Temp_Var,data.frame(Spatial_Var))%>% 
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  filter(Disturbance != "N1_S1")%>% 
+  mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
+  mutate(Disturbance = plyr::mapvalues(Disturbance, from = c("N0_S0","N0_S1","N1_S0"), to = c("Ambient","Sediment","Nutrients")))%>%
+  mutate(Disturbance = factor(Disturbance,levels = c("Ambient", "Sediment","Nutrients")))
+
+x_sub<-x %>% 
+filter(Diversity == "C"|Diversity == "D")
+
+A <-ggplot(data = subset(x_sub, 
+              metric == "Temp.Var"), aes(x=Diversity, y=value)) + 
+  geom_boxplot(aes(fill = Disturbance)) + 
+  theme_classic()+
+  ylab("Temp.Var") +
+  scale_fill_manual(values = c("#999999", "#FFCC00","#66CC00")) +
+  scale_y_reverse()
+
+B<-ggplot(data = subset(x_sub, 
+              metric == "Spa.Var"), aes(x=Diversity, y=value)) + 
+  geom_boxplot(aes(fill = Disturbance)) + 
+  theme_classic()+
+  ylab("Spa.Var") +
+  scale_fill_manual(values = c("#999999", "#FFCC00","#66CC00"))
+
+C<-ggplot(data = subset(x_sub, 
+              metric == "Resist"), aes(x=Diversity, y=value)) + 
+  geom_boxplot(aes(fill = Disturbance)) + 
+  theme_classic()+
+  ylab("Resistance") +
+  scale_fill_manual(values = c("#FFCC00","#66CC00")) 
+
+D<-ggplot(data = subset(x_sub, 
+              metric == "Resilience"), aes(x=Diversity, y=value)) + 
+  geom_boxplot(aes(fill = Disturbance)) + 
+  theme_classic()+
+  ylab("Resilience") +
+  scale_fill_manual(values = c("#FFCC00","#66CC00")) +
+  scale_x_discrete(labels=c("C" = "intact", "D" = "uncaged"))
+
+P <- ggarrange(A + rremove("xlab") + rremove("x.text"), B + rremove("xlab") + rremove("x.text"),C + rremove("xlab") + rremove("x.text"), D, heights = c(1, 1,1,1), ncol = 1, nrow = 4,common.legend = T, labels = c("(a)", "(b)", "(c)", "(d)"))
+
+annotate_figure(P, left = text_grob("Functional stability", rot = 90))
+
+```
+
+## Compositional Stability 
+
+For compositional stability, we originally calculated bray-curtis distance matrices from the log10 x +1 transformed species abundance data in PRIMER V6. But have redone all the analysis in R, all metrics were calculated with the aim of being analogous to functional measures, where possible.
+As for funtional stability, we calculate 4 different metrics using algal cover data from the time period following the perturbations (months 6 to 15). 
+
+### Temporal variability 
+
+Mean Euclidean distance from each experimental plot, on every census (months 6 to 12), to the plot centroid, based on Bray–Curtis dissimilarity matrices calculated from algal cover data.
+
+```{r}
+dat<- data%>%
+   filter(Time > 5 & Time < 13)%>%
+   unite("Treatment_Time",Treatment, Time, remove = FALSE)
+
+dist_bc <- vegdist(log10(1+dat[9:43]), method = 'bray')
+mod <- betadisper(dist_bc, dat$Plot)
+dat$dist <- mod$distances
+
+Temp_Var_Comp<- dat  %>%
+  group_by(Plot)%>%
+  summarise(Temp.Var = mean(dist), Diversity = unique(Diversity), Treatment = unique(Treatment) )
+
+```
+
+### Spatial variability 
+
+Mean Euclidean distance from each experimental plot to their grazer treatment centroid, calculated separately for each census (months 6 to 12), based on Bray–Curtis dissimilarity matrices calculated from algal cover data.
+
+```{r}
+dat<- data%>%
+   filter(Time > 5 & Time < 13)%>%
+   unite("Treatment_Time",Treatment, Time, remove = FALSE)
+
+dist_bc <- vegdist(log10(1+dat[9:43]), method = 'bray')
+mod <- betadisper(dist_bc, dat$Treatment_Time)  ####### gives mean distance between plots and their centroid
+
+Spatial_Var_Comp<-aggregate(mod$distances,list(dat$Treatment_Time),mean)%>%
+ rename(Spa.Var = x, centroid = Group.1)
+```
+
+### Resistance, Resilience
+
+For Resistance & Resilience, we used pairwise distances in the same way as LRR values for functional stability, calculating metrics from the temporal trajectory of these LRR values. As for functional stability, these metrics are all associated with a perturbation and can only be calculated by comparing algal assemblage in perturbed treatments to assemblages in unperturbed treatments. 
+
+Because of heterogeneous dispersions between consumer loss treatments (ANOVA results below), we calculated the log response ratio of the mean Euclidian distance between all plots in a given perturbed treatment and their own centroid and that from a perturbed plot to the centroid of the unperturbed plots in the corresponding consumer loss treatment. i.e. 
+ln(mean Euclidian distance between all plots in a given perturbed treatment and their own centroid/Euclidian distance from a perturbed plot to the centroid of the unperturbed plots in the corresponding consumer loss treatment)
+
+This effectively takes into account the variabilty amongst plots for a given consumer loss group.
+
+We calculated this LRR for every perturbed plot at the time point at the end of the pertubation phase and during the three month recovery phase after the perturbations (month 12 - 15). And then calculated the remaining stability metrics in exactly the same way as for functional stability. 
+
+```{r}
+dat<- data%>%
+   filter(Time > 11) %>%
+   unite("Treatment_Time", Treatment, Time, remove = FALSE)%>%
+   unite("Treatment_Time_Plot",Treatment, Time, Plot, remove = FALSE)
+
+dat<-dat[order(dat$Treatment_Time_Plot),]
+dis <- vegdist(log10(1+dat[10:44 ]), method = 'bray')
+
+mod <- betadisper(dis, dat$Treatment)
+anova(mod) ### check for dispersion between treatments
+plot(mod)
+
+fullmod <- betadisper(dis, dat$Treatment_Time)
+
+fancier_function <- function(X,Y,Z){
+  tmp <- Z$vectors[X,] ### the positions of each plot in all pCoA axis (n of plots -1) 
+  tmp.pos <- tmp[Z$eig>=0]   ### the real part
+  tmp.neg <- tmp[Z$eig<0]   ### the imaginary part
+  
+  tmp.cent <- Z$centroids[Y,] ### the positions of each centroid
+  tmp.cent.pos <- tmp.cent[Z$eig>=0]
+  tmp.cent.neg <- tmp.cent[Z$eig<0]
+  
+  real.euc <- dist(t(data.frame(tmp.pos,tmp.cent.pos))) ### real distances
+  imag.euc<- dist(t(data.frame(tmp.neg,tmp.cent.neg))) ### imaginary distances
+  as.vector(sqrt(abs(real.euc^2 - imag.euc^2))) # need the sqrt of the difference between real and imaginary parts following Anderson 2006
+}
+  
+Test<-sapply(1:5, function(X) fancier_function(X,"A_N0_S0_12", fullmod)) # can compare Test vs head(fullmod$distances) to check its working properly
+
+names<-dat$Treatment_Time_Plot %>% as.character() 
+
+## converts Treatment_Time_Plot to Treatment_Time using "regular expressions"
+tmp2 <- data.frame(Treatment_Time_Plot=names,centroid=gsub("_[^_]+$", "", names),stringsAsFactors = F) # gsub looks for something that starts with an underscore followed by a single or multiple letter or number at the end of the name and replaces it with "nothing" thus removing the last portion of the sampe name 
+
+tmp2$centroid<-sub("_N[0-1]_S[0-1]_","_N0_S0_",tmp2$centroid) ### converts to unperturbed centroid code 
+Test2<-sapply(1:320, function(X) fancier_function(X,tmp2$centroid[X], fullmod)) # now apply the funciton to every row in our mod 2 table for every centroid in our centroid table) 
+
+Distances<-cbind(Test2,tmp2)%>%
+ rename(ED = Test2)%>%
+   separate(Treatment_Time_Plot, c("Diversity", "Nutrients","Sediment", "Time","Plot"))%>%
+  unite("Treatment_Time", Diversity, Nutrients, Sediment, Time, remove = FALSE)
+
+dat<- data%>%
+   filter(Time > 11)%>%
+   unite("Treatment_Time",Treatment, Time, remove = FALSE)
+
+dist_bc <- vegdist(log10(1+dat[9:43]), method = 'bray')
+mod <- betadisper(dist_bc, dat$Treatment_Time)  
+
+Spatial_Var_Comp_recovery<-aggregate(mod$distances,list(dat$Treatment_Time),mean)%>%
+ rename(Spa.Var = x, Treatment_Time = Group.1)
+
+LRR_Comp<-left_join(Distances, Spatial_Var_Comp_recovery)%>%
+  mutate(LRR_COMP = log(Spa.Var/ED))%>%
+  mutate(Time = as.numeric(Time))%>%
+  unite(Treatment,c("Diversity", "Nutrients","Sediment"),sep="_", remove = F)%>%
+  select(Diversity, Treatment, Time, Plot, ED, Spa.Var, LRR_COMP)
+   
+LRR_Resist_Comp<-LRR_Comp%>%
+  filter(Time == 12)%>%
+  filter(Treatment != 'A_N0_S0' & Treatment != 'B_N0_S0' & Treatment != 'C_N0_S0' &   Treatment != 'D_N0_S0')%>%
+  rename(Resist =  LRR_COMP)%>%
+  select(Plot, Diversity, Treatment, Resist)
+
+Resil_Comp<-lapply(1:nrow(LRR_Resist_Comp),function(i){
+  X = LRR_Resist_Comp[i,]
+  tmp =  filter(LRR_Comp,Plot == X$Plot)
+  tmp<-lm(LRR_COMP~Time,data = tmp)
+  coef2 = tmp$coefficients["Time"]
+  data_frame(Plot=X$Plot,Resilience=coef2)
+})%>% Reduce("rbind",.)           
+```
+
+We can compile all the stability measures. For the few cases where perturbations increased similarity to control plots and, therefore, resulted in a positive resistance value, resilience was then multiplied by -1.  We can plot the raw stability measures as boxplots. 
+
+```{r, fig.height=10}
+Stability_metrics_Comp<-left_join(Resil_Comp,LRR_Resist_Comp)%>%
+mutate(Resilience = ifelse(Resist >0, Resilience*-1, Resilience))%>%
+  select(Plot,Diversity,Treatment,Resist,Resilience)%>%
+  gather(key = metric, value = value, -Diversity, -Treatment, -Plot)%>%
+  rename(rep = Plot)
+
+Temp_Var_Comp<-Temp_Var_Comp %>%
+  select(Plot,Diversity,Treatment,Temp.Var)%>%
+  gather(key = metric, value = value, -Diversity, -Treatment, -Plot)%>%
+  rename(rep = Plot)
+
+Spatial_Var_Comp<-Spatial_Var_Comp%>%
+  separate(centroid, c("Diversity", "Nutrients","Sediment", "Time"))%>%  
+  unite(Treatment,c("Diversity", "Nutrients","Sediment"),sep="_", remove = F)%>%
+  select(-Nutrients, -Sediment)%>%
+  gather(key = metric, value = value,  -Diversity, -Treatment, -Time)%>%
+  rename(rep = Time )%>%
+  mutate(rep = as.factor(rep))
+
+x_Comp <-rbind(Stability_metrics_Comp, Temp_Var_Comp, Spatial_Var_Comp)%>% 
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  filter(Disturbance != "N1_S1") %>% 
+  mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
+  mutate(Disturbance = plyr::mapvalues(Disturbance, from = c("N0_S0","N0_S1","N1_S0"), to = c("Ambient","Sediment","Nutrients")))%>%
+  mutate(Disturbance = factor(Disturbance,levels = c("Ambient", "Sediment","Nutrients")))
+
+x_Comp_sub<-x_Comp %>% 
+  filter(Diversity == "C"|Diversity == "D")
+
+A <-ggplot(data = subset(x_Comp_sub, 
+              metric == "Temp.Var"), aes(x=Diversity, y=value)) + 
+  geom_boxplot(aes(fill = Disturbance)) + 
+  theme_classic()+
+  ylab("Temp.Var") +
+  scale_fill_manual(values = c("#999999", "#FFCC00","#66CC00")) +
+  scale_y_reverse()
+
+B<-ggplot(data = subset(x_Comp_sub, 
+              metric == "Spa.Var"), aes(x=Diversity, y=value)) + 
+  geom_boxplot(aes(fill = Disturbance)) + 
+  theme_classic()+
+  ylab("Spa.Var") +
+  scale_fill_manual(values = c("#999999", "#FFCC00","#66CC00"))
+
+C<-ggplot(data = subset(x_Comp_sub, 
+              metric == "Resist"), aes(x=Diversity, y=value)) + 
+  geom_boxplot(aes(fill = Disturbance)) + 
+  theme_classic()+
+  ylab("Resistance") +
+  scale_fill_manual(values = c("#FFCC00","#66CC00")) 
+
+D<-ggplot(data = subset(x_Comp_sub, 
+              metric == "Resilience"), aes(x=Diversity, y=value)) + 
+  geom_boxplot(aes(fill = Disturbance)) + 
+  theme_classic()+
+  ylab("Resilience") +
+  scale_fill_manual(values = c("#FFCC00","#66CC00")) +
+  scale_x_discrete(labels=c("C" = "intact", "D" = "uncaged"))
+
+P <- ggarrange(A + rremove("xlab") + rremove("x.text"), B + rremove("xlab") + rremove("x.text"),C + rremove("xlab") + rremove("x.text"), D, heights = c(1, 1,1,1), ncol = 1, nrow = 4,common.legend = T, labels = c("(a)", "(b)", "(c)", "(d)"))
+
+annotate_figure(P, left = text_grob("Compositional stability", rot = 90))
+```
+
+# ANOVAs for Cage effects on stability
+
+We run ANOVAs on each stability metric, seperately for functional and compositional measures. We test for main effects of cages and for their interaction with disturbance on stability. 
+And calculate pairwise comparisons using estimated marginal means with tukey adjustment for multiple comparisons. 
+
+Have log transformed values to improve homogeneity and normality of residuals, resistance and resilience had to be range standardised before transformation, to convert to positive transformable values.  
+
+All ns.
+
+```{r}
+
+x$response<-"Function"
+x_Comp$response<-"Composition"
+
+combined <-rbind(x,x_Comp) %>%
+  filter(Diversity =="C"|Diversity =="D")%>%
+  filter(Treatment !="C_N1_S1"|Treatment !="D_N1_S1")%>%
+  separate(Treatment, c("Diversity", "Nutrients","Sediment")) %>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  unite(var,c("response","metric"),sep="_", remove = F)%>%
+  mutate(Diversity = as.factor(Diversity))%>%
+  mutate(Disturbance = as.factor(Disturbance))%>%
+  filter(metric !="Spa.Var")
+
+
+v = unique(combined$var)
+res1<-list()
+res2<-list()
+
+for(i in v){
+tmp<-lm(value~Diversity + Diversity:Disturbance, data = combined%>%filter(var == i))
+  E <- rstandard(tmp)
+  S<-shapiro.test(E) 
+  L<- leveneTest(value~ Diversity*Disturbance, data = combined%>%filter(var == i))
+  A<-anova(tmp)
+  TR <- "no_transfo"
+  
+  if(S$p.value <= 0.05){
+    if(grepl("Var$",i)){
+      combined_tmp <-combined%>%filter(var == i)
+      tmp<-lm(log(value)~Diversity + Diversity:Disturbance, data = combined_tmp)
+      E <- rstandard(tmp)
+      S<-shapiro.test(E) 
+      L<- leveneTest(log(value)~ Diversity*Disturbance, data = combined_tmp)
+      A<-anova(tmp)
+      TR <- "log_transfo"
+    }else{
+      combined_tmp <- mutate(combined, value = rangestand(value) +0.01)%>%filter(var == i)
+      tmp<-lm(log(value)~Diversity + Diversity:Disturbance, data = combined_tmp)
+      E <- rstandard(tmp)
+      S<-shapiro.test(E) 
+      L<- leveneTest(log(value)~ Diversity*Disturbance, data = combined_tmp)
+      A<-anova(tmp) 
+      TR <- "range_log_transfo"
+    }
+  }  
+  if(S$p.value <= 0.05){
+    if(grepl("Resi",i)){
+      combined_tmp <- mutate(combined, value = rangestand(value) +0.01)%>%filter(var == i)
+      tmp<-lm((value)^3~Diversity + Diversity:Disturbance, data = combined_tmp)
+      E <- rstandard(tmp)
+      S<-shapiro.test(E) 
+      L<- leveneTest((value)^3~Diversity*Disturbance, data = combined_tmp)
+      A<-anova(tmp) 
+      TR <- "range_cb_transfo"
+    }
+  }
+   
+  table1<-data.frame(Normality=S$p.value, Homogeneity=L$`Pr(>F)`[1], Var = i, Transformation = TR)
+  table2<-data.frame(A) 
+  
+  res1[[i]] <-table1
+  res2[[i]] <-table2
+}
+
+res1%>% Reduce("rbind",.)
+res2
+
+mod1<-lm(value ~ Diversity + Diversity:Disturbance, data = combined%>%filter(var == "Function_Temp.Var"))
+
+
+```
+For spatial variabilty we need to run linear mixed models with lmer and include time as a random factor. 
+Calculate p-values from F-tests using Satterthwaite's denominator df. 
+And calculate pairwise comparisons using estimated marginal means with tukey adjustment for multiple comparisons. 
+
+Evidence for signifcant interaction bewtween cage and disturbance on functional spatial variability, but post hoc tests all ns. 
+Ambient treatment has lowest compositional spatial variability within intact caged treatments, whereas sediment has lowest variability within uncaged treatment. 
+In addition, compositional spatial variability differs for all disturbance treatments between intact and caged treatments, i.e. variability in ambient and nutrient treatments is higher in uncaged controls than within intact caged, wheras variability in sediment treatment is lower in uncaged control than within intact caged.  
+
+```{r}
+combined <-rbind(x,x_Comp) %>%
+   filter(Diversity =="C"|Diversity =="D")%>%
+  filter(Treatment !="C_N1_S1"|Treatment !="D_N1_S1")%>%
+  separate(Treatment, c("Diversity", "Nutrients","Sediment")) %>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  unite(var,c("response","metric"),sep="_", remove = F)%>%
+  mutate(Diversity = as.factor(Diversity))%>%
+  mutate(Disturbance = as.factor(Disturbance))%>%
+  filter(metric =="Spa.Var")
+
+v = unique(combined$var)
+
+res1<-list()
+res2<-list()
+res3<-list()
+res4<-list()
+
+for(i in v){
+  tmp<-lmer(value~Diversity + Diversity:Disturbance + (1|rep), data = combined%>%filter(var == i))
+  E <- resid(tmp)
+  S<-shapiro.test(E) 
+  L<- leveneTest(value~Diversity*Disturbance, data = combined%>%filter(var == i))
+  A<-anova(tmp)
+  TR <- "no_transfo"
+  pairs2<-pairs(emmeans(tmp, ~ Diversity:Disturbance))
+  MS_resid<- (summary(tmp)$sigma)^2
+  
+  if(S$p.value <= 0.05){
+    tmp<-lmer(log(value)~Diversity + Diversity:Disturbance + (1|rep), data = combined%>%filter(var == i))
+    E <- resid(tmp)
+    S<-shapiro.test(E) 
+    L<- leveneTest(log(value)~Diversity*Disturbance, data = combined_tmp)
+    A<-anova(tmp) 
+    TR <- "log_transfo"
+    pairs2<-pairs(emmeans(tmp, ~ Diversity:Disturbance))
+    MS_resid<- (summary(tmp)$sigma)^2
+    }
+
+  table1<-data.frame(Normality=S$p.value, Homogeneity=L$`Pr(>F)`[1], Var = i, Transformation = TR)
+  table2<-data.frame(A) 
+  table3<-data.frame(pairs2)%>%filter(p.value<=0.05)
+  table4<-data.frame(MS_resid) 
+  
+  res1[[i]] <-table1
+  res2[[i]] <-table2
+  res3[[i]] <-table3
+  res4[[i]] <-table4
+}
+
+
+res1%>% Reduce("rbind",.)
+res2
+res3
+res4
+
+```
+
+# Correlations of functional vs compositional stability including uncaged
+
+We can plot and calculate correlations of functional and compositional measures, seperately for each stability metric. Used Spearman's rank correlation due to small sample sizes and non-normally distibuted data.
+
+For Temp var and Resistance, functional and compositional measures are significantly positively correlated. 
+
+Here we include uncaged controls aswell - increases strength of correlation for resistance but decreases strength of correlation of temporal variability (v. slightly).
+
+```{r}
+
+x <-rbind(Stability_metrics, Temp_Var,data.frame(Spatial_Var))%>% 
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
+  mutate(Disturbance = plyr::mapvalues(Disturbance, from = c("N0_S0","N0_S1","N1_S0","N1_S1"), to = c("Ambient","Sediment","Nutrients", "Both")))%>%
+  mutate(Disturbance = factor(Disturbance,levels = c("Ambient", "Sediment","Nutrients","Both")))
+
+x_Comp <-rbind(Stability_metrics_Comp, Temp_Var_Comp, Spatial_Var_Comp)%>% 
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
+  mutate(Disturbance = plyr::mapvalues(Disturbance, from = c("N0_S0","N0_S1","N1_S0","N1_S1"), to = c("Ambient","Sediment","Nutrients", "Both")))%>%
+  mutate(Disturbance = factor(Disturbance,levels = c("Ambient", "Sediment","Nutrients","Both")))
+
+x$response<-"Function"
+x_Comp$response<-"Composition"
+
+combined <-rbind(x,x_Comp) %>%
+  separate(Treatment, c("Diversity", "Nutrients","Sediment")) %>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
+  mutate(Diversity = as.factor(Diversity))%>%
+  mutate(Disturbance = as.factor(Disturbance))%>%
+  spread(response, value)
+
+v = unique(combined$metric)
+
+res1<-list()
+
+
+for(i in v){
+  combined_tmp <-combined%>%filter(metric == i)
+  tmp<-cor.test(combined_tmp$Function, combined_tmp$Composition, method = "spearman")
+  Fu<-shapiro.test(combined_tmp$Function)
+  Co<-shapiro.test(combined_tmp$Composition)
+  
+  table1<-data.frame(metric = i, Normality_Fu=Fu$p.value, Normality_Co=Co$p.value, Pval = tmp$p.value,Rho = tmp$estimate, test = tmp$method )
+  
+  res1[[i]] <-table1
+
+}
+
+res1%>% Reduce("rbind",.)
+
+ggplot(combined, aes(x=Function, y=Composition)) + 
+  geom_point(aes(colour = Disturbance)) + 
+  theme_classic()+
+  scale_colour_manual(values = c("#999999", "#FFCC00","#66CC00", "red3")) + 
+  facet_wrap(~ metric, scales = "free")+ 
+  geom_smooth(data = subset(combined, metric == "Resist"), aes(x=Function, y=Composition), method = lm, se = FALSE,colour = "black") +
+  geom_smooth(data = subset(combined, metric == "Temp.Var"), aes(x=Function, y=Composition), method = lm, se = FALSE, colour = "black") 
+
+```
+
+# ANOVA and PERMANOVA results T12
+
+Results for full models with all possible interactions on macroalgae after 12 months of experiment (TAC):
+Species removed (3 levels: none, whelk, whelk & grazers)
+Nutrients (2 levels: added, ambient)
+Enrichment (2 levels: added, ambient)
+
+So unlike the main analysis i have included the mutli-stressor treatment. 
+
+## ANOVA
+
+Model on raw data gives slightly non-normally distributed residuals (p =0.03 for shapiro-wilk). 
+Raw model results give sig effect of consumer loss only, TAC in whelk & grazer loss > other treatments 
+
+```{r}
+
+functional_T12<- data%>%
+  mutate_if(is.numeric, ~replace(., is.na(.), 0))%>%
+   mutate(sum = rowSums(cols)) %>%
+   select(Time:Treatment,sum) %>%
+    filter(Time == 12 ) %>%
+    filter(Diversity != "D" ) %>%
+    rename(TAC = `sum`) %>%separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_", remove = F)%>%
+  mutate(Disturbance = as_factor(Disturbance))%>%
+  mutate(Diversity = as_factor(Diversity))
+
+ggplot(functional_T12, aes(x=Diversity, y=TAC))+
+  geom_boxplot(aes(fill = Disturbance))+
+  scale_fill_manual(values = c("#999999", "#FFCC00","#66CC00","red3"))+
+  theme_classic()+
+  scale_x_discrete(labels=c("A" = "W & G loss", "B" = "W loss", "C" = "intact"))
+ 
+mod1<-lm(TAC~Diversity*Nutrients*Sediment, data = functional_T12)
+leveneTest(TAC~Diversity*Nutrients*Sediment, data = functional_T12)
+
+par(mfrow=c(2,2))
+plot(mod1,which = c(1,2,3))
+E1 <- rstandard(mod1)
+F1 <- fitted(mod1)
+hist(E1)
+shapiro.test(E1)    
+par(mfrow=c(1,1))
+anova(mod1)
+lsmeans(mod1, pairwise~Diversity, adjust="tukey") 
+
+```
+
+Model on squared data improves normality of residuals but increases heteroscedasticty slightly (but not significantly). 
+
+Model on squared data gives sig interaction between sediment and consumer loss: 
+TAC in whelk & grazer loss no sediment > all other treatments 
+
+Other trasnfomrations (log and sqrt) made distribution of residuals very non-normal. 
+
+```{r}
+mod2<-lm((TAC)^2~Diversity*Nutrients*Sediment, data = functional_T12)
+leveneTest(TAC^2~Diversity*Nutrients*Sediment, data = functional_T12)
+
+par(mfrow=c(2,2))
+plot(mod2,which = c(1,2,3))
+
+E2 <- rstandard(mod2)
+F2 <- fitted(mod2)
+hist(E2)
+shapiro.test(E2)    
+par(mfrow=c(1,1))
+anova(mod2)  
+lsmeans(mod2, pairwise~Diversity*Sediment, adjust="tukey") 
+
+ggplot(functional_T12, aes(x=Diversity, y=TAC))+
+  geom_boxplot(aes(fill = Sediment))+
+  scale_fill_manual(values = c("#999999", "#FFCC00","#66CC00","red3"))+
+  theme_classic()+
+  scale_x_discrete(labels=c("A" = "W & G loss", "B" = "W loss", "C" = "intact"))
+
+```
+
+## PERMANOVA
+
+We check for homogeneous dispersion between groups and carry out permanova. 
+Dispersions are homogeneous but used  log10 x +1 transformation on data to keep in line with rest of anlalysis. 
+Results are same regardless of transformation, whelk and grazer treatments differ signicantly from other treatments. 
+
+```{r}
+
+env<- data%>%
+  select(Plot, Time:Treatment)%>%
+  unite("Treatment_Time", Time,Treatment, remove = FALSE)%>%
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_", remove = F)%>%
+  filter(Time == 12 & Diversity != 'D')
+
+dat<- data%>%
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_", remove = F)%>%
+  unite("Treatment_Time", Time,Treatment, remove = FALSE)%>%
+  relocate(Diversity:Disturbance, .after = Treatment)%>%
+  filter(Time == 12 & Diversity != 'D')%>%
+  mutate(Time = as_factor(Time))%>%
+  mutate(Disturbance = as_factor(Disturbance))%>%
+  relocate(Nutrients, Sediment,.after = Disturbance)
+
+dist_bc <- vegdist((dat[10:44]), method = 'bray')
+disper=betadisper(dist_bc, dat$Treatment_Time)
+
+plot(disper)
+anova(disper)
+
+adonis(log10(1 + dat[10:44]) ~ Diversity*Nutrients*Sediment, data = dat, permutations = 9999)
+adonis((dat[10:44]) ~ Diversity*Nutrients*Sediment, data = dat, permutations = 9999)
+
+pairwise.adonis(log10(1 + dat[10:44]), dat$Diversity)
+```
+
+
+
+#Session info 
+
+```{r}
+sessionInfo()
+```
+

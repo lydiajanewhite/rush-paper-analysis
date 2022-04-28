@@ -350,16 +350,20 @@ test_func<-contributions %>%
   filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1")%>% 
   group_by(metric, Treatment) %>% 
   summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value,  # default is two.sided 
-            tval = t.test(x = LRR_metric, mu = 0)$statistic)
+            tval = t.test(x = LRR_metric, mu = 0)$statistic,
+            norm = shapiro.test(x = LRR_metric)$p.value)
 
 test_func %>%  
   group_by(metric) %>% 
   mutate(pval.adj = p.adjust (pval, method='holm'))
+
+test_func %>%  
+  group_by(metric) %>% 
+  mutate(pval.adj = p.adjust (pval, method='BH'))
  
 test_func <- test_func %>%  
   group_by(metric) %>% 
   mutate(pval.adj = p.adjust (pval, method='BH'))
-
 
 contributions %>% 
   filter(metric == "Resilience", Treatment== "A_N0_S1")%>% 
@@ -772,7 +776,8 @@ test_comp<-contributions_Comp %>%
   filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
   group_by(metric, Treatment) %>% 
   summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value, 
-            tval = t.test(x = LRR_metric, mu = 0)$statistic)
+            tval = t.test(x = LRR_metric, mu = 0)$statistic,
+            norm = shapiro.test(x = LRR_metric)$p.value)
 
 test_comp
 

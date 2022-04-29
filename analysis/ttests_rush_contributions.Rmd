@@ -348,7 +348,7 @@ but with multiple comparisons p values are adjusted and some no longer significa
 ```{r}
 test_func<-contributions %>% 
   filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1")%>% 
-  group_by(metric, Treatment) %>% 
+  group_by(metric, Treatment, Diversity) %>% 
   summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value,  # default is two.sided 
             tval = t.test(x = LRR_metric, mu = 0)$statistic,
             norm = shapiro.test(x = LRR_metric)$p.value)
@@ -358,9 +358,23 @@ test_func %>%
   mutate(pval.adj = p.adjust (pval, method='holm'))
 
 test_func %>%  
-  group_by(metric) %>% 
-  mutate(pval.adj = p.adjust (pval, method='BH'))
+  group_by(metric, Diversity) %>% 
+  mutate(pval.adj = p.adjust (pval, method='BH'))  # reduce comparisons from 6/4 to 3/2 ie each stressor treat within diversity 
  
+comparisons_func<-test_func %>%  
+  group_by(metric) %>% 
+  mutate(pval.adj = p.adjust (pval, method='BH'))%>% 
+  group_by(metric, Diversity) %>% 
+  mutate(pval.adj_A = p.adjust (pval, method='BH'))%>% 
+  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_', remove = FALSE) %>% 
+  unite(Stressor, c("Nutrients", "Sediment"), sep = "_", remove = FALSE)%>% 
+  group_by(metric, Stressor) %>% 
+  mutate(pval.adj_B = p.adjust (pval, method='BH')) %>% 
+  arrange(desc(metric), Nutrients, Sediment, desc(Diversity)) %>% 
+  mutate(Diversity = plyr::mapvalues(Diversity, from = c("A","B"), to = c("Grazers","Whelks")))
+comparisons_func$response <- "Functional" 
+
+
 test_func <- test_func %>%  
   group_by(metric) %>% 
   mutate(pval.adj = p.adjust (pval, method='BH'))
@@ -380,8 +394,22 @@ test_func$tval
 
 test_func$response <- "Functional" 
 
+
 #write.csv(test, file = "ttest_data_function.csv")
 
+test_func_edit<-contributions %>% 
+  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1")%>% 
+  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_', remove = FALSE) %>% 
+  unite(Stressor, c("Nutrients", "Sediment"), sep = "_")%>% 
+  group_by(metric, Diversity, Stressor, Treatment) %>% 
+  summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value,  # default is two.sided 
+            tval = t.test(x = LRR_metric, mu = 0)$statistic,
+            norm = shapiro.test(x = LRR_metric)$p.value)
+
+
+test_func_edit %>%  
+  group_by(metric, Stressor) %>% 
+  mutate(pval.adj = p.adjust (pval, method='BH'))
 ```
 
 ## Predicting multiple stressor effects
@@ -637,7 +665,7 @@ x_Comp <-rbind(Stability_metrics_Comp, Temp_Var_Comp, Spatial_Var_Comp)%>%
   mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
   mutate(Disturbance = plyr::mapvalues(Disturbance, from = c("N0_S0","N0_S1","N1_S0"), to = c("Ambient","Sediment","Nutrients")))%>%
   mutate(Disturbance = factor(Disturbance,levels = c("Ambient", "Sediment","Nutrients"))) %>%
-mutate(Diversity = plyr::mapvalues(Diversity, from = c("A","B","C"), to = c("Whelks & Grazers","Whelks","None")))%>%
+ mutate(Diversity = plyr::mapvalues(Diversity, from = c("A","B","C"), to = c("Whelks & Grazers","Whelks","None")))%>%
   mutate(Diversity = factor(Diversity,levels = c("Whelks & Grazers","Whelks","None")))
 
 
@@ -774,18 +802,38 @@ For spatial variability grazer vs predator contributions are different (for sedi
 ```{r}
 test_comp<-contributions_Comp %>% 
   filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
-  group_by(metric, Treatment) %>% 
+  group_by(metric, Treatment, Diversity) %>% 
   summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value, 
             tval = t.test(x = LRR_metric, mu = 0)$statistic,
             norm = shapiro.test(x = LRR_metric)$p.value)
 
 test_comp
 
-test_comp <- test_comp %>%  
+comparisons_comp<-test_comp %>%  
+  group_by(metric) %>% 
+  mutate(pval.adj = p.adjust (pval, method='BH'))%>% 
+  group_by(metric, Diversity) %>% 
+  mutate(pval.adj_A = p.adjust (pval, method='BH'))%>% 
+  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_', remove = FALSE) %>% 
+  unite(Stressor, c("Nutrients", "Sediment"), sep = "_", remove = FALSE)%>% 
+  group_by(metric, Stressor) %>% 
+  mutate(pval.adj_B = p.adjust (pval, method='BH')) %>% 
+  arrange(desc(metric), Nutrients, Sediment, desc(Diversity)) %>% 
+  mutate(Diversity = plyr::mapvalues(Diversity, from = c("A","B"), to = c("Grazers","Whelks")))
+comparisons_comp$response <- "Compositional" 
+
+ttest_data_comparisons<-rbind(comparisons_func, comparisons_comp)
+write.csv(ttest_data_comparisons, file = "ttest_data_comparisons.csv")
+
+test_comp %>%  
+  group_by(metric, Diversity) %>% 
+  mutate(pval.adj = p.adjust (pval, method='BH'))
+
+test_comp %>%  
   group_by(metric) %>% 
   mutate(pval.adj = p.adjust (pval, method='BH'))
 
-test_comp <- test_comp %>% 
+test_comp %>% 
   separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_') %>% 
   arrange(desc(metric), Nutrients, Sediment, desc(Diversity))
 
@@ -796,6 +844,21 @@ print.data.frame(test_comp)
 ttest_data<-rbind(test_func, test_comp)
 
 write.csv(ttest_data, file = "ttest_data.csv")
+
+test_comp_edit<-contributions_Comp %>% 
+  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1")%>% 
+  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_', remove = FALSE) %>% 
+  unite(Stressor, c("Nutrients", "Sediment"), sep = "_")%>% 
+  group_by(metric, Diversity, Stressor, Treatment) %>% 
+  summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value,  # default is two.sided 
+            tval = t.test(x = LRR_metric, mu = 0)$statistic,
+            norm = shapiro.test(x = LRR_metric)$p.value)
+
+
+test_comp_edit %>%  
+  group_by(metric, Stressor) %>% 
+  mutate(pval.adj = p.adjust (pval, method='BH'))
+
 
 var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "B_N0_S1")$LRR_metric, 
          filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S1")$LRR_metric)

@@ -341,10 +341,14 @@ sum_Func
 ```
 
 Want to run t-tests for each combination of metric x treatment 
-two-tailed tests to see if greater OR less than zero. 
 
-t-tests rely on the same confidence intervals that we have plotted so, grazer (i.e Diversity treat A) contributions to temp var (no stressor and nutrients) are less than zero. Grazer contribution to spa var (no stressor) and predator contribution to spa var (sediment) are greater than zero.  
-but with multiple comparisons p values are adjusted and some no longer significant. 
+Two-tailed tests to see if greater OR less than zero. 
+
+t-tests rely on the same confidence intervals that we have plotted.
+But we adjust p values for multiple comparisons (i.e. two consumer groups) 
+following the Benjamini & Hochberg method to control the false discovery rate (Benjamini & Hochberg 1995). 
+Grazer contributions to temp var (no stressors) are less than zero. 
+Predator contribution to spa var (sediment) are greater than zero.  
 ```{r}
 test_func<-contributions %>% 
   filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1")%>% 
@@ -353,63 +357,27 @@ test_func<-contributions %>%
             tval = t.test(x = LRR_metric, mu = 0)$statistic,
             norm = shapiro.test(x = LRR_metric)$p.value)
 
-test_func %>%  
-  group_by(metric) %>% 
-  mutate(pval.adj = p.adjust (pval, method='holm'))
-
-test_func %>%  
-  group_by(metric, Diversity) %>% 
-  mutate(pval.adj = p.adjust (pval, method='BH'))  # reduce comparisons from 6/4 to 3/2 ie each stressor treat within diversity 
- 
 comparisons_func<-test_func %>%  
-  group_by(metric) %>% 
-  mutate(pval.adj = p.adjust (pval, method='BH'))%>% 
-  group_by(metric, Diversity) %>% 
-  mutate(pval.adj_A = p.adjust (pval, method='BH'))%>% 
   separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_', remove = FALSE) %>% 
   unite(Stressor, c("Nutrients", "Sediment"), sep = "_", remove = FALSE)%>% 
-  group_by(metric, Stressor) %>% 
-  mutate(pval.adj_B = p.adjust (pval, method='BH')) %>% 
+  group_by(metric, Stressor) %>%    # 3/2 comparisons n of diversity treats
+  mutate(pval.adj = p.adjust (pval, method='BH')) %>% 
   arrange(desc(metric), Nutrients, Sediment, desc(Diversity)) %>% 
   mutate(Diversity = plyr::mapvalues(Diversity, from = c("A","B"), to = c("Grazers","Whelks")))
 comparisons_func$response <- "Functional" 
 
+#  group_by(metric) %>%      
+#  mutate(pval.adj = p.adjust (pval, method='BH'))%>%   # 6/4 comparisons n of treats
+#  group_by(metric, Diversity) %>%     
+#  mutate(pval.adj_A = p.adjust (pval, method='BH'))%>%  # 3/2 comparisons n of stressors 
+   
+fd<-contributions %>% 
+  filter(metric == "Spa.Var" & Treatment == "A_N0_S0" )%>% 
+  t_test(LRR_metric ~ 1, mu = 0) 
 
-test_func <- test_func %>%  
-  group_by(metric) %>% 
-  mutate(pval.adj = p.adjust (pval, method='BH'))
+fd$p
+p.adjust(fd$p, 'BH', n = 2) # check that is adjusting for correct no of groups i.e. 2. 
 
-contributions %>% 
-  filter(metric == "Resilience", Treatment== "A_N0_S1")%>% 
-  summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value, 
-            tval = t.test(x = LRR_metric, mu = 0)$statistic,
-            conf = t.test(x = LRR_metric, mu = 0)$conf.int)
-
-test_func <- test_func %>% 
-  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_') %>% 
-  arrange(desc(metric), Nutrients, Sediment, desc(Diversity))
-
-print.data.frame(test_func)
-test_func$tval
-
-test_func$response <- "Functional" 
-
-
-#write.csv(test, file = "ttest_data_function.csv")
-
-test_func_edit<-contributions %>% 
-  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1")%>% 
-  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_', remove = FALSE) %>% 
-  unite(Stressor, c("Nutrients", "Sediment"), sep = "_")%>% 
-  group_by(metric, Diversity, Stressor, Treatment) %>% 
-  summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value,  # default is two.sided 
-            tval = t.test(x = LRR_metric, mu = 0)$statistic,
-            norm = shapiro.test(x = LRR_metric)$p.value)
-
-
-test_func_edit %>%  
-  group_by(metric, Stressor) %>% 
-  mutate(pval.adj = p.adjust (pval, method='BH'))
 ```
 
 ## Predicting multiple stressor effects
@@ -471,39 +439,25 @@ pred_Func<-ggplot(predict_summary, aes(x=metric, y=mean, Diversity_type)) +
 pred_Func
 ```
 
-Can do t-test for predicted and observed, again to see what is diff from zero. 
-But doesn't work cos of samples sizes for bootstrapped data. 
+t-tests for predicted vs observed 
 
-Then for predator contribution to spa var. will check for equal variance first (is equal) so continue with standard 2 sample t test. 
-After accounting for 2 comparisons with BH. 
+Check for equal variance first (is equal) so continue with standard 2 sample t test. 
+Then for predator contribution to spa var sig dif after accounting for 2 comparisons with BH. 
 For all other metrics predict vs observed are not sig different. 
-
-t_test is just a pipeable wrapper for t.test (package = rstatix) but cannot manually dictate how many comparisons to adjust p vals for. 
 
 ```{r}
 
 test<-predict %>% 
-  group_by(metric, Diversity, type) %>% 
-  summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value,  # default is two.sided 
-            tval = t.test(x = LRR_metric, mu = 0)$statistic)
+  group_by(metric, Diversity) %>% 
+  summarise(pval = t.test(LRR_metric ~ type)$p.value,  
+            tval = t.test(LRR_metric ~ type)$statistic) %>% 
+  mutate(pval.adj = p.adjust (pval, method='BH'))
 
-var.test(filter(predict, metric == "Spa.Var" & Diversity == "B", type == "N1_S1")$LRR_metric, filter(predict, metric == "Spa.Var" & Diversity == "B", type == "Predicted")$LRR_metric)
-
-fd<-predict %>% 
-  filter(metric == "Spa.Var" & Diversity == "B")%>% 
-  t_test(LRR_metric ~ type)
-
-fd$p
-p.adjust(fd$p, 'BH', n = 2)
+var.test(filter(predict, metric == "Spa.Var" & Diversity == "A", type == "N1_S1")$LRR_metric, filter(predict, metric == "Spa.Var" & Diversity == "A", type == "Predicted")$LRR_metric)
 
 predict %>% 
   filter(metric == "Spa.Var" & Diversity == "B", type == "Predicted")%>% 
   t_test(LRR_metric ~ 1, mu = 0) 
-
-
-# predict %>% 
-#  filter(metric == "Resilience" & Diversity == "A") %>% 
-#  t_test(LRR_metric ~ type )
 
 ```
 
@@ -794,122 +748,86 @@ sum_Full<- ggarrange(sum_Func + rremove("xlab") + rremove("x.text"), sum_Comp+ r
 ```
 
 Want to run t-tests for each combination of metric x treatment 
+Two-tailed tests to see if greater OR less than zero. 
 
-t-tests rely on exactly the same confidence intervals that we have plotted so, grazer (i.e Diversity treat A) contributions to resilience (both sediment and nutrients) are greater than zero, but predator contribution to resilience (sediment) is only marginal p = 0.06. All consumer contributions to spatial var are different from zero apart from predator/sediment (p = 0.069). 
+t-tests rely on the same confidence intervals that we have plotted.
+But we adjust p values for multiple comparisons (i.e. two consumer groups) 
+following the Benjamini & Hochberg method to control the false discovery rate (Benjamini & Hochberg 1995). 
+All grazer contribution to spa var  are greater than zero.
+All predator contribution to spa var are less than zero, apart from sediment.   
 
-For spatial variability grazer vs predator contributions are different (for sediment) from one another despite predators not being different from zero. 
+For spatial variability grazer contributions are different for each stressor treatment. 
+(for sediment) from one another despite predators not being different from zero. 
 
 ```{r}
+
 test_comp<-contributions_Comp %>% 
   filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
   group_by(metric, Treatment, Diversity) %>% 
-  summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value, 
-            tval = t.test(x = LRR_metric, mu = 0)$statistic,
-            norm = shapiro.test(x = LRR_metric)$p.value)
-
-test_comp
-
-comparisons_comp<-test_comp %>%  
-  group_by(metric) %>% 
-  mutate(pval.adj = p.adjust (pval, method='BH'))%>% 
-  group_by(metric, Diversity) %>% 
-  mutate(pval.adj_A = p.adjust (pval, method='BH'))%>% 
-  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_', remove = FALSE) %>% 
-  unite(Stressor, c("Nutrients", "Sediment"), sep = "_", remove = FALSE)%>% 
-  group_by(metric, Stressor) %>% 
-  mutate(pval.adj_B = p.adjust (pval, method='BH')) %>% 
-  arrange(desc(metric), Nutrients, Sediment, desc(Diversity)) %>% 
-  mutate(Diversity = plyr::mapvalues(Diversity, from = c("A","B"), to = c("Grazers","Whelks")))
-comparisons_comp$response <- "Compositional" 
-
-ttest_data_comparisons<-rbind(comparisons_func, comparisons_comp)
-write.csv(ttest_data_comparisons, file = "ttest_data_comparisons.csv")
-
-test_comp %>%  
-  group_by(metric, Diversity) %>% 
-  mutate(pval.adj = p.adjust (pval, method='BH'))
-
-test_comp %>%  
-  group_by(metric) %>% 
-  mutate(pval.adj = p.adjust (pval, method='BH'))
-
-test_comp %>% 
-  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_') %>% 
-  arrange(desc(metric), Nutrients, Sediment, desc(Diversity))
-
-test_comp$response <- "Compositional" 
-  
-print.data.frame(test_comp)
-
-ttest_data<-rbind(test_func, test_comp)
-
-write.csv(ttest_data, file = "ttest_data.csv")
-
-test_comp_edit<-contributions_Comp %>% 
-  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1")%>% 
-  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_', remove = FALSE) %>% 
-  unite(Stressor, c("Nutrients", "Sediment"), sep = "_")%>% 
-  group_by(metric, Diversity, Stressor, Treatment) %>% 
   summarise(pval = t.test(x = LRR_metric, mu = 0)$p.value,  # default is two.sided 
             tval = t.test(x = LRR_metric, mu = 0)$statistic,
             norm = shapiro.test(x = LRR_metric)$p.value)
 
+comparisons_comp<-test_comp %>%  
+  separate(Treatment, c("Diversity", "Nutrients", "Sediment"), sep='_', remove = FALSE) %>% 
+  unite(Stressor, c("Nutrients", "Sediment"), sep = "_", remove = FALSE)%>% 
+  group_by(metric, Stressor) %>%    # 3/2 comparisons n of diversity treats
+  mutate(pval.adj = p.adjust (pval, method='BH')) %>% 
+  arrange(desc(metric), Nutrients, Sediment, desc(Diversity)) %>% 
+  mutate(Diversity = plyr::mapvalues(Diversity, from = c("A","B"), to = c("Grazers","Whelks")))
+comparisons_comp$response <- "Compositional" 
 
-test_comp_edit %>%  
-  group_by(metric, Stressor) %>% 
-  mutate(pval.adj = p.adjust (pval, method='BH'))
+#  group_by(metric) %>%      
+#  mutate(pval.adj = p.adjust (pval, method='BH'))%>%   # 6/4 comparisons n of treats
+#  group_by(metric, Diversity) %>%     
+#  mutate(pval.adj_A = p.adjust (pval, method='BH'))%>%  # 3/2 comparisons n of stressors 
+   
+# fd<-contributions %>% 
+#  filter(metric == "Spa.Var" & Treatment == "A_N0_S0" )%>% 
+#  t_test(LRR_metric ~ 1, mu = 0) 
+
+# fd$p
+# p.adjust(fd$p, 'BH', n = 2) # check that is adjusting for correct no of groups i.e. 2. 
+
+ttest_data_comparisons<-rbind(comparisons_func, comparisons_comp)
+write.csv(ttest_data_comparisons, file = "ttest_data_comparisons.csv")
+
+contributions_Comp %>% 
+  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
+  filter(metric == "Spa.Var" & Diversity == "A" )%>% 
+  t_test(LRR_metric ~ Treatment, p.adjust.method = "BH")
+
+contributions_Comp %>% 
+  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
+  filter(metric == "Spa.Var" & Diversity == "B")%>% 
+  t_test(LRR_metric ~ Treatment, p.adjust.method = "BH")
 
 
-var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "B_N0_S1")$LRR_metric, 
-         filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S1")$LRR_metric)
+contributions_Comp$Treatment <- as.factor(contributions_Comp$Treatment)
 
-test1<-contributions_Comp %>% 
-  filter(metric == "Spa.Var" & Treatment == "B_N0_S1" |metric == "Spa.Var" & Treatment == "A_N0_S1" )%>% 
-  t_test(LRR_metric ~ Treatment)
-
-p.adjust(test1$p, n = 3)  # 3 comparisons between grazers and predators, one for each stressor treatment. 
+contributions_Comp %>% 
+  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
+  filter(metric == "Spa.Var")%>% 
+  group_by(Diversity)%>% 
+  levene_test(LRR_metric ~ Treatment)
 
 var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S1")$LRR_metric, 
          filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N1_S0")$LRR_metric)
 
-test2<-contributions_Comp %>% 
-  filter(metric == "Spa.Var" & Treatment == "A_N0_S1" |metric == "Spa.Var" & Treatment == "A_N1_S0" )%>% 
-  t_test(LRR_metric ~ Treatment)
-
-p.adjust(test2$p, n = 3)  # 3 comparisons between grazers stressor treatments. 
-
 var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N1_S0")$LRR_metric, 
          filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S0")$LRR_metric)
-
-test3<-contributions_Comp %>% 
-  filter(metric == "Spa.Var" & Treatment == "A_N1_S0" |metric == "Spa.Var" & Treatment == "A_N0_S0" )%>% 
-  t_test(LRR_metric ~ Treatment)
-
-p.adjust(test3$p, n = 3)
 
 var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S1")$LRR_metric, 
          filter(contributions_Comp, metric == "Spa.Var" & Treatment == "A_N0_S0")$LRR_metric)
 
-test4<-contributions_Comp %>% 
-  filter(metric == "Spa.Var" & Treatment == "A_N0_S1" |metric == "Spa.Var" & Treatment == "A_N0_S0" )%>% 
-  t_test(LRR_metric ~ Treatment)
+var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "B_N0_S1")$LRR_metric, 
+         filter(contributions_Comp, metric == "Spa.Var" & Treatment == "B_N1_S0")$LRR_metric)
 
-p.adjust(test4$p, n = 3)
+var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "B_N1_S0")$LRR_metric, 
+         filter(contributions_Comp, metric == "Spa.Var" & Treatment == "B_N0_S0")$LRR_metric)
 
-
-check <-contributions_Comp %>% 
-  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
-   filter(metric == "Spa.Var") %>% 
-    t_test (LRR_metric ~ Treatment, p.adj = "BH")
-
-print.data.frame(check)
-
-contributions_Comp %>% 
-  filter(Treatment != "A_N1_S1" & Treatment != "B_N1_S1") %>% 
-   filter(metric == "Resilience") %>% 
-    t_test (LRR_metric ~ Treatment, p.adj = "BH")
-
-
+var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "B_N0_S1")$LRR_metric, 
+         filter(contributions_Comp, metric == "Spa.Var" & Treatment == "B_N0_S0")$LRR_metric)
 
 ```
 
@@ -977,9 +895,25 @@ pred_Full <- ggarrange(pred_Func + rremove("xlab") + rremove("x.text"), pred_Com
 pred_Comp 
 ```
 
-can do 2 tailed t-test for predicted vs observed, for grazer contribution to spa var. will check for equal variance first (is equal) so continue with standard 2 sample t test. 
-also check that both are different from zero... 
+t-tests for predicted vs observed 
+
+Check for equal variance first (is equal) so continue with standard 2 sample t test. 
+Then for predator contribution to spa var sig dif after accounting for 2 comparisons with BH. 
+For all other metrics predict vs observed are not sig different. 
+
 ```{r}
+
+test<-predict_Comp %>% 
+  group_by(metric, Diversity) %>% 
+  summarise(pval = t.test(LRR_metric ~ type)$p.value,  
+            tval = t.test(LRR_metric ~ type)$statistic) %>% 
+  mutate(pval.adj = p.adjust (pval, method='BH'))
+
+var.test(filter(predict_Comp, metric == "Spa.Var" & Diversity == "A", type == "N1_S1")$LRR_metric, filter(predict_Comp, metric == "Spa.Var" & Diversity == "A", type == "Predicted")$LRR_metric)
+
+predict_Comp %>% 
+  filter(metric == "Spa.Var" & Diversity == "B", type == "Predicted")%>% 
+  t_test(LRR_metric ~ 1, mu = 0) 
 
 var.test(filter(predict_Comp, metric == "Spa.Var" & Diversity == "B", type == "N1_S1")$LRR_metric, filter(predict, metric == "Spa.Var" & Diversity == "B", type == "Predicted")$LRR_metric)
 

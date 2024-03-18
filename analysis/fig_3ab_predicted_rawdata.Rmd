@@ -14,7 +14,7 @@ knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
 
 ```
 
-Workflow for Figure 4 (main text) and Fig S1 (supp info) Rush Paper 1 REVISED
+Workflow for Figure 3a in Rush paper, submitted to oikos 
 
 ```{r input data}
 library(readr)
@@ -197,54 +197,6 @@ rename(rep = Time )%>%
 ungroup(rep)%>%
 mutate(rep = as.factor(rep))
 
-x <-rbind(Stability_metrics, Temp_Var,data.frame(Spatial_Var))%>% 
-  filter(Diversity != "D")%>% 
-  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
-  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
-  filter(Disturbance != "N1_S1")%>% 
-  mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
-  mutate(Disturbance = plyr::mapvalues(Disturbance, from = c("N0_S0","N0_S1","N1_S0"), to = c("Ambient","Sediment","Nutrients")))%>%
-  mutate(Disturbance = factor(Disturbance,levels = c("Ambient", "Sediment","Nutrients")))%>%
-  mutate(Diversity = plyr::mapvalues(Diversity, from = c("A","B","C"), to = c("Whelks & Grazers","Whelks","None")))%>%
-  mutate(Diversity = factor(Diversity,levels = c("Whelks & Grazers","Whelks","None")))
-
-```
-
-## Consumer contributions
-
-Contributions of grazers and predators to algal stability were then quantified as the inverse of the calculated stability metrics, that is, a strong destabilizing effect of a perturbation in plots from which a consumer group was removed compared to when it was present implies that the species contributes strongly and positively to that component of ecological stability. 
-
-So we calculate the log response ratio of the stability metrics in a consumer group loss plot relative to plots when all consumers are present. i.e. predator loss treatments relative to no consuer losses (to evaluate net contribution of predators) and grazer & predator loss relative to predator loss (to evaluate net contribution of grazers). 
-
-```{r species contributions, message = FALSE, warning=FALSE}
-
-rangestand<-function(x) { 
-  (x - min(x))/(max(x)-min(x))
-} 
-
-contributions <-rbind(Stability_metrics, Temp_Var,data.frame(Spatial_Var))%>%
-  group_by(metric)%>%
-  mutate(value = ifelse(metric == "Resist"|metric == "Resilience", rangestand(value)+0.01, value)) 
-
-mean_metric<- contributions %>%
-  filter(Diversity== "C"|Diversity== "B")%>%
-  group_by(metric, Treatment)%>%
-  summarise(mean =mean(value))
-
-mean_metric$Treatment<- gsub("B", "A", mean_metric$Treatment)%>% 
-  gsub("C", "B", .)
-
-contributions<-left_join(contributions,mean_metric)%>%
-  mutate(LRR_metric = log(value/mean))
-
-```
-
-To ensure that all stability metrics can be interpreted similarly when represented graphically, i.e. with a high positive value indicating the consumer promotes stability and an increasingly negative value indicating the consumer destabilises the system, resistance and spatial variability, and resilience are multiplied by -1 (as for these metrics a high positive value is associated with increased stability). 
-
-```{r}
-contributions <- contributions %>%
-  mutate(LRR_metric = ifelse(metric == "Resilience"|metric == "Resist"|metric == "Spa.Var", LRR_metric*-1, LRR_metric))
- 
 ```
 
 # Compositional Stability 
@@ -397,136 +349,18 @@ Spatial_Var_Comp<-Spatial_Var_Comp%>%
   rename(rep = Time )%>%
   mutate(rep = as.factor(rep))
 
-x_Comp <-rbind(Stability_metrics_Comp, Temp_Var_Comp, Spatial_Var_Comp)%>% 
-  filter(Diversity != "D") %>% 
-  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
-  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
-  filter(Disturbance != "N1_S1") %>% 
-  mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
-  mutate(Disturbance = plyr::mapvalues(Disturbance, from = c("N0_S0","N0_S1","N1_S0"), to = c("Ambient","Sediment","Nutrients")))%>%
-  mutate(Disturbance = factor(Disturbance,levels = c("Ambient", "Sediment","Nutrients"))) %>%
-mutate(Diversity = plyr::mapvalues(Diversity, from = c("A","B","C"), to = c("Whelks & Grazers","Whelks","None")))%>%
-  mutate(Diversity = factor(Diversity,levels = c("Whelks & Grazers","Whelks","None")))
-
-```
- 
-## Consumer contributions
-Calculated as for functional stability.
-
-```{r}
-
-contributions_Comp <-rbind(Stability_metrics_Comp, Temp_Var_Comp, Spatial_Var_Comp)%>% 
-  group_by(metric)%>%
-  mutate(value = ifelse(metric == "Resist"|metric == "Resilience", rangestand(value)+0.01, value)) 
-
-mean_metric_Comp<- contributions_Comp %>%
-  filter(Diversity== "C"|Diversity== "B")%>%
-  group_by(metric, Treatment)%>%
-  summarise(mean =mean(value))
-
-mean_metric_Comp$Treatment<- gsub("B", "A", mean_metric_Comp$Treatment)%>% 
-  gsub("C", "B", .)
-
-contributions_Comp<-left_join(contributions_Comp,mean_metric_Comp)%>%
-  mutate(LRR_metric = log(value/mean))%>%
-  mutate(LRR_metric = ifelse(metric == "Resilience"|metric == "Resist"|metric == "Spa.Var", LRR_metric*-1, LRR_metric))
- 
-```
-
-# Correlations of functional and compositional stability contributions (not raw data)
-
-We can plot and calculate correlations of functional and compositional contributions, seperately for each stability metric. Used spearmans rank correlation due to small sample sizes and non-normally distibuted data. Include all data, including multistressor treatments.
-
-Results: same as for raw stabilty values
-For Temp var and Resistance, contributions are positively correlated 
-
-```{r}
-
-contributions$response<-"Function"
-contributions_Comp$response<-"Composition"
-
-combined <-rbind(contributions,contributions_Comp) %>%
-  filter(Diversity == 'A' | Diversity == 'B')%>%
-  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
-  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
-  mutate(Disturbance = plyr::mapvalues(Disturbance, from = c("N0_S0","N0_S1","N1_S0","N1_S1"), to = c("Ambient","Sediment","Nutrients", "Sediment & Nutrients")))%>%
-  mutate(Disturbance = factor(Disturbance,levels = c("Ambient", "Sediment","Nutrients","Sediment & Nutrients")))%>%
-  mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
-  select(-mean, -value) %>%
-  spread(response, LRR_metric)%>%
-  mutate(Diversity = as.factor(Diversity))
-
-v = unique(combined$metric)
-
-res1<-list()
-
-
-for(i in v){
-  combined_tmp <-combined%>%filter(metric == i)
-  tmp<-cor.test(combined_tmp$Function, combined_tmp$Composition, method = "spearman")
-  Fu<-shapiro.test(combined_tmp$Function)
-  Co<-shapiro.test(combined_tmp$Composition)
-  
-  table1<-data.frame(metric = i, Normality_Fu=Fu$p.value, Normality_Co=Co$p.value, Pval = tmp$p.value,Rho = tmp$estimate, test = tmp$method )
-  
-  res1[[i]] <-table1
-
-}
-
-res1%>% Reduce("rbind",.)
-
-I <-ggplot(data = subset(combined, 
-              metric == "Temp.Var"), aes(x=Composition, y=Function)) + 
-  geom_point(aes(colour = Disturbance), size = 2) + 
-  geom_smooth( aes(), method = lm, se = FALSE,colour = "black") +
-  theme_classic()+
-  ylab("Temporal variability (Function)") +
-  xlab("Temporal variability (Composition)") +
-  scale_colour_manual(values = c("#999999", "#FFCC00","#66CC00", "red3"))+
-  scale_x_reverse()+
-  scale_y_reverse()
-
-J<-ggplot(data = subset(combined, 
-              metric == "Spa.Var"), aes(x=Composition, y=Function)) + 
-  geom_point(aes(colour = Disturbance), size = 2) + 
-  theme_classic()+
-  ylab("Spatial variability (Function)") +
-  xlab("Spatial variability (Composition)") +
-  scale_colour_manual(values = c("#999999", "#FFCC00","#66CC00", "red3"))
-
-K<-ggplot(data = subset(combined, 
-              metric == "Resist"), aes(x=Composition, y=Function)) + 
-  geom_point(aes(colour = Disturbance), size = 2) + 
-  geom_smooth( aes(), method = lm, se = FALSE,colour = "black") +
-  theme_classic()+
-  ylab("Resistance (Function)") +
-  xlab("Resistance (Composition)") +
-  scale_colour_manual(values = c("#FFCC00","#66CC00", "red3"))
-
-
-L<-ggplot(data = subset(combined, 
-              metric == "Resilience"), aes(x=Composition, y=Function)) + 
-  geom_point(aes(colour = Disturbance), size = 2) + 
-  theme_classic()+
-  ylab("Resilience (Function)") +
-  xlab("Resilience (Composition)") +
-  scale_colour_manual(values = c("#FFCC00","#66CC00", "red3"))
-
-P_Cor <- ggarrange(I , J ,K , L, heights = c(1, 1), ncol = 2, nrow = 2,common.legend = T, labels = c("(a)", "(b)", "(c)", "(d)"))
-
-P_Cor 
 ```
 
 # Predicted vs observed (raw data) for intact communities 
 
 Here we use raw stability measures instead of contributions 
+should rename object "contributions".... as is confusing 
 
 ## Functional stability 
 ```{r}
+raw <-rbind(Stability_metrics, Temp_Var,data.frame(Spatial_Var))
 
-contributions <-rbind(Stability_metrics, Temp_Var,data.frame(Spatial_Var))
-
-test<-contributions %>% 
+test<-raw %>% 
   filter (Diversity == "C")%>% 
   separate(Treatment, c("Diversity", "Nutrients","Sediment"))%>%
   unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
@@ -565,29 +399,49 @@ predict_summary_func<-predict %>%
   mutate(type = plyr::mapvalues(type, from = c("N1_S1", "Predicted"), to = c("observed","predicted")))%>%
     mutate(metric = plyr::mapvalues(metric, from = c("Temp.Var", "Spa.Var", "Resist", "Resilience"), to = c("Temporal variability", "Spatial variability", "Resistance", "Resilience")))
 
-pred_Func<-ggplot(predict_summary_func, aes(x=metric, y=mean)) + 
+predict %>% 
+  group_by(metric, Diversity, type) %>% 
+  summarise(new = sample(value, size = 5)) %>% 
+  group_by(metric, Diversity) %>% 
+  t_test(new ~ type)
+
+predict %>% 
+  group_by(metric, Diversity) %>% 
+  t_test(value ~ type)
+
+# non-parametric version gives same results 
+predict %>% 
+  group_by(metric, Diversity) %>% 
+    kruskal_test(value ~ type)
+
+```
+
+for the paper we are only interested in variability as we did not detect significant contribution of consumers to resistance and resilience. 
+
+```{r}
+pred_Func_raw<-ggplot(filter(predict_summary_func, metric == "Temporal variability" | metric == "Spatial variability"), aes(x=metric, y=mean)) + 
   geom_errorbar(aes(colour = type, ymin=lower.ci, ymax=upper.ci),      position=position_dodge(0.6), size = 0.7, width = 0.4) +
-  geom_point(aes(colour = type),position=position_dodge(0.6), size = 4)+
+  geom_point(aes(colour = type),position=position_dodge(0.6), size = 3.5)+
   ylab("Functional stability") +
   xlab("") +
-  ylim(-2.3,1.5)+
-  geom_hline(yintercept = 0, linetype="dashed") +
+  ylim(0,0.8)+
   theme_classic(base_size = 18)+
-  theme(axis.text.x=element_text(angle=20,hjust=1),legend.position = "bottom", legend.title=element_text(size=8),legend.text = element_text(size=8)) + 
-  annotate("text", x = 0.5, y = -1, label="Destabilizing", color = "black",size = 4, angle=90,fontface = "italic")+
-  annotate("text", x = 0.5, y = 1, label="Stabilizing", color = "black",size = 4, angle=90,fontface = "italic") + scale_colour_manual(values = c("#FF6666", "dark red"))
+  theme(axis.text.x=element_text(angle=20,hjust=0.8, vjust = 1),legend.position = "bottom", legend.title=element_text(size=8),legend.text = element_text(size=8)) + scale_colour_manual(values = c("#FF6666", "dark red"))
 
-pred_Func
+
+
+pred_Func_raw
+
+
 ```
 
 ## Compositional stability 
 
 ```{r}
-
-contributions_Comp <-rbind(Stability_metrics_Comp, Temp_Var_Comp, Spatial_Var_Comp)%>% 
+raw_Comp <-rbind(Stability_metrics_Comp, Temp_Var_Comp, Spatial_Var_Comp)%>% 
   group_by(metric)
 
-test<-contributions_Comp %>% 
+test<-raw_Comp %>% 
   filter (Diversity == "C")%>% 
   separate(Treatment, c("Diversity", "Nutrients","Sediment"))%>%
   unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
@@ -626,23 +480,24 @@ predict_summary_comp<-predict_comp %>%
   mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
   mutate(type = plyr::mapvalues(type, from = c("N1_S1", "Predicted"), to = c("observed","predicted")))%>%
     mutate(metric= plyr::mapvalues(metric, from = c("Temp.Var", "Spa.Var", "Resist", "Resilience"), to = c("Temporal variability", "Spatial variability", "Resistance", "Resilience")))
+```
 
+for the paper we are only interested in variability as we did not detect signifcant contribution of consumers to resistance and resilience. 
 
-pred_Comp<-ggplot(predict_summary_comp, aes(x=metric, y=mean)) + 
+```{r}
+
+pred_Comp_raw<-ggplot(filter(predict_summary_comp, metric == "Temporal variability" | metric == "Spatial variability"), aes(x=metric, y=mean)) + 
   geom_errorbar(aes(colour = type, ymin=lower.ci, ymax=upper.ci),      position=position_dodge(0.6), width = 0.4, size = 0.7) +
-  geom_point(aes(colour = type),position=position_dodge(0.6), size = 4)+
+  geom_point(aes(colour = type),position=position_dodge(0.6), size = 3.5)+
   ylab("Compositional stability") +
   xlab("") +
-   ylim(-1.6,1.6)+
-  geom_hline(yintercept = 0, linetype="dashed") +
+  ylim(0,0.8)+
   theme_classic(base_size = 18)+
-  theme(axis.text.x=element_text(angle=20,hjust=1),legend.position = "bottom", legend.title=element_text(size=8),legend.text = element_text(size=8)) + 
-  annotate("text", x = 0.5, y = -1, label="Destabilizing", color = "black",size = 4, angle=90,fontface = "italic")+
-  annotate("text", x = 0.5, y = 1, label="Stabilizing", color = "black",size = 4, angle=90,fontface = "italic") + scale_colour_manual(values = c("#FF6666", "dark red"))
+  theme(axis.text.x=element_text(angle=20,hjust=0.8, vjust = 1),legend.position = "bottom", legend.title=element_text(size=8),legend.text = element_text(size=8)) + scale_colour_manual(values = c("#FF6666", "dark red"))
 
-pred <- ggarrange(pred_Func + rremove("xlab"), pred_Comp + rremove("xlab"), heights = c(1, 1), ncol = 1, nrow = 2,common.legend = T, labels = c("(a)", "(b)"))
+pred_raw <- ggarrange(pred_Func_raw + rremove("xlab"), pred_Comp_raw + rremove("xlab"), heights = c(1, 1), ncol = 2, nrow = 1,common.legend = T, labels = c("(a)", "(b)"))
 
-pred
+pred_raw
 
 ```
 
@@ -651,17 +506,30 @@ pred
 comparing observed vs expected with two-tailed, two-sample t-tests. 
 
 ```{r}
-var.test(filter(predict, metric == "Resilience", type == "N1_S1")$value, filter(predict, metric == "Resilience" & type == "Predicted")$value) 
+predict_comp %>% 
+  group_by(metric, Diversity, type) %>% 
+  summarise(new = sample(value, size = 5)) %>% 
+  group_by(metric, Diversity, type) %>%
+  summarise(norm = shapiro.test(x= new)$p.value)
 
-predict%>% 
+predict_comp %>% 
+  group_by(metric, Diversity, type) %>% 
+  summarise(new = sample(value, size = 5)) %>% 
   group_by(metric, Diversity) %>% 
-  t_test(value ~ type)
+  t_test(new ~ type)
 
-var.test(filter(predict_comp, metric == "Resilience", type == "N1_S1")$value, filter(predict_comp, metric == "Resilience" & type == "Predicted")$value)
+predict_comp %>% 
+  group_by(metric, Diversity, type) %>%
+  summarise(norm = shapiro.test(x = value)$p.value)
 
 predict_comp %>% 
   group_by(metric, Diversity) %>% 
   t_test(value ~ type)
+
+# non-parametric version gives same results 
+predict_comp %>% 
+  group_by(metric, Diversity) %>% 
+    kruskal_test(value ~ type)
 
 ```
 

@@ -1,5 +1,5 @@
 ---
-title: "ttests rush contributions"
+title: "consumer contribution correlations"
 author: "Lydia White"
 date: "`r Sys.Date()`"
 output:
@@ -13,8 +13,8 @@ knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
 
 ```
 
-calculation of consumer contributions to stability and significance testing. 
-Creates figures 2 & 3 from manuscript, and corresponding t-tests. 
+Calculation of consumer contributions to stability and their correlations.
+Creates figure 4. 
 
 ```{r input data}
 
@@ -35,6 +35,7 @@ library(ggh4x)
 library(patchwork)
 library(ggpubr)
 library(rstatix)
+library(GGally)
 ```
 
 # Intact communities 
@@ -365,88 +366,6 @@ comparisons_func<-test_func %>%
   arrange(desc(metric), Nutrients, Sediment, desc(Diversity)) %>% 
   mutate(Diversity = plyr::mapvalues(Diversity, from = c("A","B"), to = c("Grazers","Whelks")))
 comparisons_func$response <- "Functional" 
-
-```
-
-## Predicting multiple stressor effects
-
-We predicted the combined contribution of consumers to the various dimensions of stability in response to multiple stressors based upon the sum of their contributions to individual stressors, effectively testing for interactive effects of stressors as departure from the additive model. 
-
-We randomly selected combinations of contributions of consumers to algal stability in response to elevated sediments and nutrient enrichment  (that is, one contribution measurement selected randomly from one of the plots belonging to each single stressor treatment) by bootstrapping (1,000 times) and then summing the two values together. These bootstrapped predicted values were compared with observed multi-stressor contributions, after correcting for original sample size (n = 5, or n = 7 for spatial variability).
-
-```{r}
-contributions <- contributions%>% 
-  separate(Treatment, c("Diversity", "Nutrients","Sediment"))%>%
-  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
-  filter(Disturbance != 'N0_S0')
-
-predict<-lapply(contributions$metric %>% unique,function(i){
-  y = contributions %>%
-     filter(metric == i & Disturbance == "N0_S1" & Diversity == "A") %>% nrow
-  lapply(c("A","B"), function(k){
-    lapply(c("N0_S1","N1_S0"),function(j){
-      x = contributions %>%
-       filter(metric == i & Disturbance == j & Diversity == k) 
-      x$LRR_metric[sample(1:nrow(x),1000,replace = T)]
-    }) %>%
-      Reduce("+",.) %>%
-      data_frame(type = "Predicted", Diversity = k, metric = i, LRR_metric = . ,n=y) 
-  })  %>% Reduce("rbind",.)
-}) %>% Reduce("rbind",.)
-
-contributions<-contributions%>%
-  group_by(metric, Diversity, Disturbance)%>%
-  summarise(n = n())%>%
-  left_join(contributions,.)%>%
-  rename(type = Disturbance)
-
-predict<-rbind(as_data_frame(contributions %>%
-  filter(type == "N1_S1")%>%
- select (type, Diversity, metric, LRR_metric, n)), predict)
-
-predict_summary<-predict %>%
-  group_by(type, Diversity, metric)%>%
-  summarise(mean=mean(LRR_metric),  sd = sd(LRR_metric), n = unique(n))%>%
-  mutate(se = sd/sqrt(n),lower.ci = mean - qt(1 - (0.05 / 2), n - 1) * se, upper.ci = mean + qt(1 - (0.05 / 2), n - 1) * se)%>%
-  ungroup(type, Diversity,metric) %>%
-  unite("Diversity_type", Diversity, type, remove = FALSE)%>%
-  mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
-  mutate(Diversity_type = factor(Diversity_type,levels = c( "B_N1_S1", "B_Predicted", "A_N1_S1", "A_Predicted")))%>%
-  mutate(Diversity_type = plyr::mapvalues(Diversity_type, from = c("B_N1_S1", "B_Predicted", "A_N1_S1", "A_Predicted"), to = c("observed whelks","predicted whelks","observed grazers","predicted grazers")))
-
-pred_Func<-ggplot(predict_summary, aes(x=metric, y=mean, Diversity_type)) + 
-  geom_errorbar(aes(shape = Diversity_type, colour = type, ymin=lower.ci, ymax=upper.ci),      position=position_dodge(0.85), width = 0.5, size = 0.7) +
-  geom_point(aes(shape = Diversity_type,colour = type),position=position_dodge(0.85), size = 3)+
-  ylab("Functional stability") +
-  geom_hline(yintercept = 0, linetype="dashed") +
-  theme_classic(base_size = 18)+
-  theme(axis.text.x=element_text(angle=20,hjust=1),legend.position = "bottom", legend.title=element_text(size=8),legend.text = element_text(size=8)) + 
-  annotate("text", x = 0.5, y = -1, label="Destabilizing", color = "black",size = 4, angle=90,fontface = "italic")+
-  annotate("text", x = 0.5, y = 1, label="Stabilizing", color = "black",size = 4, angle=90,fontface = "italic")+  scale_shape_manual(values=c( 17,2,15,0))+ scale_colour_manual(values = c("#FF6666", "dark red"))
-
-pred_Func
-```
-
-t-tests for predicted vs observed 
-
-Check for equal variance first (is equal) so continue with standard 2 sample t test. 
-Then for predator contribution to spa var sig dif after accounting for 2 comparisons with BH. 
-For all other metrics predict vs observed are not sig different. 
-
-```{r}
-
-test<-predict %>% 
-  group_by(metric, Diversity) %>% 
-  summarise(pval = t.test(LRR_metric ~ type)$p.value,  
-            tval = t.test(LRR_metric ~ type)$statistic) %>% 
-  group_by(metric) %>% 
-  mutate(pval.adj = p.adjust (pval, method='BH'))
-
-var.test(filter(predict, metric == "Spa.Var" & Diversity == "A", type == "N1_S1")$LRR_metric, filter(predict, metric == "Spa.Var" & Diversity == "A", type == "Predicted")$LRR_metric)
-
-predict %>% 
-  filter(metric == "Spa.Var" & Diversity == "B", type == "Predicted")%>% 
-  t_test(LRR_metric ~ 1, mu = 0) 
 
 ```
 
@@ -808,98 +727,131 @@ var.test(filter(contributions_Comp, metric == "Spa.Var" & Treatment == "B_N0_S1"
 
 ```
 
-## Predicting multiple stressor effects
+## Correlations between consumer contributions
 
-Calculated as for functional stability. 
+We can plot and calculate correlations of contributions to functional and compositional measures, seperately for each stability metric. Used Spearman's rank correlation due to small sample sizes and non-normally distibuted data.
 
+For Temp var and Resistance, functional and compositional measures are significantly positively correlated. 
 ```{r}
-contributions_Comp <- contributions_Comp%>% 
-  separate(Treatment, c("Diversity", "Nutrients","Sediment"))%>%
-  unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
-  filter(Disturbance != 'N0_S0')
+contributions$response<-"Function" 
 
-predict_Comp<-lapply(contributions_Comp$metric %>% unique,function(i){
-  y = contributions_Comp %>%
-     filter(metric == i & Disturbance == "N0_S1" & Diversity == "A") %>% nrow
-  lapply(c("A","B"), function(k){
-    lapply(c("N0_S1","N1_S0"),function(j){
-      x = contributions_Comp %>%
-       filter(metric == i & Disturbance == j & Diversity == k) 
-      x$LRR_metric[sample(1:nrow(x),1000,replace = T)]
-    }) %>%
-      Reduce("+",.) %>%
-      data_frame(type = "Predicted", Diversity = k, metric = i, LRR_metric = . ,n=y) 
-  })  %>% Reduce("rbind",.)
-}) %>% Reduce("rbind",.)
-
-contributions_Comp<-contributions_Comp%>%
-  group_by(metric, Diversity, Disturbance)%>%
-  summarise(n = n())%>%
-  left_join(contributions_Comp,.)%>%
-  rename(type = Disturbance)
-
-predict_Comp<-rbind(as_data_frame(contributions_Comp %>%
-  filter(type == "N1_S1")%>%
-  select (type, Diversity, metric, LRR_metric, n)), predict_Comp)
-
-predict_summary_Comp<-predict_Comp %>%
-  group_by(type, Diversity, metric)%>%
-  summarise(mean=mean(LRR_metric),  sd = sd(LRR_metric), n = unique(n))%>%
-  mutate(se = sd/sqrt(n),lower.ci = mean - qt(1 - (0.05 / 2), n - 1) * se, upper.ci = mean + qt(1 - (0.05 / 2), n - 1) * se)%>%
-  ungroup(type, Diversity,metric) %>%
-  unite("Diversity_type", Diversity, type, remove = FALSE)%>%
+contributions <- contributions %>% 
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_") %>% 
   mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
-  mutate(Diversity_type = factor(Diversity_type,levels = c( "B_N1_S1", "B_Predicted", "A_N1_S1", "A_Predicted")))%>%
-  mutate(Diversity_type = plyr::mapvalues(Diversity_type, from = c("B_N1_S1", "B_Predicted", "A_N1_S1", "A_Predicted"), to = c("observed whelks","predicted whelks","observed grazers","predicted grazers")))%>%
-  mutate(metric = plyr::mapvalues(metric, from = c("Temp.Var", "Spa.Var", "Resist", "Resilience"), to = c("Temporal variability", "Spatial variability", "Resistance", "Resilience")))%>%
-  mutate(metric = factor(metric,levels = c( "Temporal variability", "Spatial variability", "Resistance", "Resilience")))
-
-
-pred_Comp<-ggplot(predict_summary_Comp, aes(x=metric, y=mean, Diversity_type)) + 
-  geom_errorbar(aes(shape = Diversity_type, colour = type, ymin=lower.ci, ymax=upper.ci),      position=position_dodge(0.85), width = 0.5, size = 0.7) +
-  geom_point(aes(shape = Diversity_type,colour = type),position=position_dodge(0.85), size = 3)+
-  ylab("Compositional stability") +
-  ylim(-2,2)+
-  geom_hline(yintercept = 0, linetype="dashed") +
-  theme_classic(base_size = 18)+
-  theme(axis.text.x=element_text(angle=20,hjust=1), legend.text = element_text(size=8),legend.title = element_text(size=8)) + 
-  annotate("text", x = 0.5, y = -1, label="Destabilizing", color = "black",size = 4, angle=90,fontface = "italic")+
-  annotate("text", x = 0.5, y = 1, label="Stabilizing", color = "black",size = 4, angle=90,fontface = "italic")+  scale_shape_manual(values=c( 17,2,15,0))+ scale_colour_manual(values = c("#FF6666", "dark red"))
-
+  mutate(Disturbance = plyr::mapvalues(Disturbance, from = c("N0_S0","N0_S1","N1_S0","N1_S1"), to = c("Ambient","Sediment","Nutrients", "Both")))%>%
+  mutate(Disturbance = factor(Disturbance,levels = c("Ambient", "Sediment","Nutrients","Both")))
   
-pred_Full <- ggarrange(pred_Func + rremove("xlab") + rremove("x.text"), pred_Comp+ rremove("xlab"), heights = c(1,1), ncol = 1, nrow = 2,common.legend = T, labels = c("a", "b"))
+contributions_Comp$response <-"Composition"
 
-pred_Comp 
+contributions_Comp <- contributions_Comp %>% 
+  separate(Treatment, c("Diversity", "Nutrients","Sediment"), remove = F)%>%
+  unite(Disturbance,c("Nutrients","Sediment"),sep="_") %>% 
+  mutate(metric = factor(metric,levels = c( "Temp.Var", "Spa.Var", "Resist", "Resilience")))%>%
+  mutate(Disturbance = plyr::mapvalues(Disturbance, from = c("N0_S0","N0_S1","N1_S0","N1_S1"), to = c("Ambient","Sediment","Nutrients", "Both")))%>%
+  mutate(Disturbance = factor(Disturbance,levels = c("Ambient", "Sediment","Nutrients","Both")))
+
+combined <-rbind(contributions,contributions_Comp) %>%
+  select(-value, -mean) %>% 
+  mutate(Diversity = as.factor(Diversity))%>%
+  spread(response, LRR_metric)
+
+v = unique(combined$metric)
+
+res1<-list()
+
+for(i in v){
+  combined_tmp <-combined%>%filter(metric == i)
+  tmp<-cor.test(combined_tmp$Function, combined_tmp$Composition, method = "spearman")
+  Fu<-shapiro.test(combined_tmp$Function)
+  Co<-shapiro.test(combined_tmp$Composition)
+  
+  table1<-data.frame(metric = i, Normality_Fu=Fu$p.value, Normality_Co=Co$p.value, Pval = tmp$p.value,Rho = tmp$estimate, test = tmp$method )
+  
+  res1[[i]] <-table1
+
+}
+
+res1%>% Reduce("rbind",.)
+
+ggplot(combined, aes(x=Composition, y=Function)) + 
+  geom_point(aes(colour = Disturbance)) + 
+  theme_classic()+
+  scale_colour_manual(values = c("#999999", "#FFCC00","#66CC00", "red3")) + 
+  facet_wrap(~ metric, scales = "free")+ 
+  geom_smooth(data = subset(combined, metric == "Resist"), aes(x=Composition, y=Function), method = lm, se = FALSE,colour = "black") +
+  geom_smooth(data = subset(combined, metric == "Temp.Var"), aes(x=Composition, y=Function), method = lm, se = FALSE, colour = "black") 
+
+ggscatter(combined, x="Composition", y="Function", 
+          color = "Diversity", 
+          cor.coef = TRUE, 
+          cor.method = "spearman",
+          p.accuracy = 0.001) +
+   theme_classic()+
+   facet_wrap(~ metric, scales = "free") +
+   stat_cor(aes(color = Diversity), method = "spearman", label.x = 0, p.accuracy = 0.001)
+
+gg1 <- ggscatter(filter(combined, metric == "Temp.Var"), x="Composition", y="Function", 
+   add = "reg.line",
+   color = "Diversity",
+   shape = "Diversity",
+   cor.coef = F, 
+   cor.method = "spearman",
+   p.accuracy = 0.001,
+   alpha = 0.7) +
+   theme_classic()+
+   scale_color_grey() +
+   scale_shape_manual(values=c(15, 17)) +
+   theme(legend.position = "none") +
+   stat_cor(aes(color = Diversity), method = "spearman", p.accuracy = 0.001)
+
+dens1a <- ggplot((filter(combined, metric == "Temp.Var")), aes(x = Composition, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  scale_fill_grey() +
+  theme_void() + 
+  theme(legend.position = "none")
+
+dens1b <- ggplot((filter(combined, metric == "Temp.Var")), aes(x = Function, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  scale_fill_grey() +
+  theme_void() + 
+  theme(legend.position = "none") +
+  coord_flip()
+
+gg2 <- ggscatter(filter(combined, metric == "Spa.Var"), x="Composition", y="Function", 
+   add = "reg.line",
+   color = "Diversity", 
+   shape = "Diversity",
+   cor.coef = F, 
+   cor.method = "spearman",
+   p.accuracy = 0.001,
+   alpha = 0.7) +
+   theme_classic()+
+   scale_color_grey() +
+   scale_shape_manual(values=c(15, 17)) +
+   stat_cor(aes(color = Diversity), method = "spearman", p.accuracy = 0.001)
+
+dens2a <- ggplot((filter(combined, metric == "Spa.Var")), aes(x = Composition, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  theme_void() +
+  scale_fill_grey() +
+  theme(legend.key.size = unit(0.2, 'cm'), #change legend key size
+        legend.text = element_text(size=8)) #change legend text font size
+
+dens2b <- ggplot((filter(combined, metric == "Spa.Var")), aes(x = Function, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  theme_void() + 
+  scale_fill_grey() +
+  theme(legend.position = "none") +
+  coord_flip()
+
+corr_plot <- dens1a + plot_spacer() + dens2a + plot_spacer() +
+  gg1 + dens1b + gg2 + dens2b +
+  plot_layout(ncol = 4, nrow = 2, widths = c(4, 1, 4, 1), heights = c(1, 4))
+
 ```
-
-t-tests for predicted vs observed 
-
-Check for equal variance first (is equal) so continue with standard 2 sample t test. 
-Then for predator contribution to spa var sig dif after accounting for 2 comparisons with BH. 
-For all other metrics predict vs observed are not sig different. 
+#Session info 
 
 ```{r}
-
-test<-predict_Comp %>% 
-  group_by(metric, Diversity) %>% 
-  summarise(pval = t.test(LRR_metric ~ type)$p.value,  
-            tval = t.test(LRR_metric ~ type)$statistic) %>% 
-  group_by(metric) %>% 
-  mutate(pval.adj = p.adjust (pval, method='BH'))
-
-var.test(filter(predict_Comp, metric == "Spa.Var" & Diversity == "A", type == "N1_S1")$LRR_metric, filter(predict_Comp, metric == "Spa.Var" & Diversity == "A", type == "Predicted")$LRR_metric)
-var.test(filter(predict_Comp, metric == "Resilience" & Diversity == "A", type == "N1_S1")$LRR_metric, filter(predict_Comp, metric == "Resilience" & Diversity == "A", type == "Predicted")$LRR_metric)
-
-predict_Comp %>% 
-  filter(metric == "Spa.Var" & Diversity == "B", type == "Predicted")%>% 
-  t_test(LRR_metric ~ 1, mu = 0) 
-
-pp<-predict_Comp %>% 
-  filter(metric == "Spa.Var" & Diversity == "A")%>% 
-  t_test(LRR_metric ~ type)
-
-p.adjust(pp$p, n = 2)
-
-
+sessionInfo()
 ```
-

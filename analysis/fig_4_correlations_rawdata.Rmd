@@ -33,6 +33,7 @@ library(ggh4x)
 library(patchwork)
 library(ggpubr)
 library(rstatix)
+library(GGally)
 ```
 
 
@@ -748,13 +749,13 @@ res4
 
 ```
 
-# Correlations of functional vs compositional stability including uncaged
+# Correlations of functional vs compositional stability
 
 We can plot and calculate correlations of functional and compositional measures, seperately for each stability metric. Used Spearman's rank correlation due to small sample sizes and non-normally distibuted data.
 
-For Temp var and Resistance, functional and compositional measures are significantly positively correlated. 
+So use all 3 caged treatments - which are the data used to calculate contributions. 
 
-Here we include uncaged controls aswell - increases strength of correlation for resistance but decreases strength of correlation of temporal variability (v. slightly).
+the focus of the paper is consumers so we look at comsumer treatments, pooling across stressors (which showed weaker effects than consumers)
 
 ```{r}
 
@@ -780,7 +781,8 @@ combined <-rbind(x,x_Comp) %>%
   unite(Disturbance,c("Nutrients","Sediment"),sep="_")%>%
   mutate(Diversity = as.factor(Diversity))%>%
   mutate(Disturbance = as.factor(Disturbance))%>%
-  spread(response, value)
+  spread(response, value) %>% 
+  filter(Diversity != "D")
 
 v = unique(combined$metric)
 
@@ -801,16 +803,175 @@ for(i in v){
 
 res1%>% Reduce("rbind",.)
 
-ggplot(combined, aes(x=Function, y=Composition)) + 
+ggplot(combined, aes(x=Composition, y=Function)) + 
   geom_point(aes(colour = Disturbance)) + 
   theme_classic()+
   scale_colour_manual(values = c("#999999", "#FFCC00","#66CC00", "red3")) + 
   facet_wrap(~ metric, scales = "free")+ 
-  geom_smooth(data = subset(combined, metric == "Resist"), aes(x=Function, y=Composition), method = lm, se = FALSE,colour = "black") +
-  geom_smooth(data = subset(combined, metric == "Temp.Var"), aes(x=Function, y=Composition), method = lm, se = FALSE, colour = "black") 
+  geom_smooth(data = subset(combined, metric == "Resist"), aes(x=Composition, y=Function), method = lm, se = FALSE,colour = "black") +
+  geom_smooth(data = subset(combined, metric == "Temp.Var"), aes(x=Composition, y=Function), method = lm, se = FALSE, colour = "black") 
+
+ggscatter(combined, x="Composition", y="Function", 
+          color = "Diversity", 
+          cor.coef = F, 
+          cor.method = "spearman",
+          p.accuracy = 0.001) +
+   theme_classic()+
+   facet_wrap(~ metric, scales = "free") +
+   stat_cor(aes(color = Diversity), method = "spearman", label.x = 0, p.accuracy = 0.001)
+
+
+gg1 <- ggscatter(filter(combined, metric == "Temp.Var"), x="Composition", y="Function", 
+   add = "reg.line",
+   color = "Diversity", 
+   cor.coef = F, 
+   cor.method = "spearman",
+   p.accuracy = 0.001,
+   alpha = 0.7) +
+   theme_classic()+
+   scale_x_reverse() +
+   scale_y_reverse() +
+   theme(legend.position = "none") +
+   stat_cor(aes(color = Diversity), method = "spearman", p.accuracy = 0.001)
+
+dens1a <- ggplot((filter(combined, metric == "Temp.Var")), aes(x = Composition, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  scale_x_reverse() +
+  theme_void() + 
+  theme(legend.position = "none")
+
+dens1b <- ggplot((filter(combined, metric == "Temp.Var")), aes(x = Function, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  scale_x_reverse() +
+  theme_void() + 
+  theme(legend.position = "none") +
+  coord_flip()
+
+gg2 <- ggscatter(filter(combined, metric == "Spa.Var"), x="Composition", y="Function", 
+   add = "reg.line",
+   color = "Diversity", 
+   cor.coef = F, 
+   cor.method = "spearman",
+   p.accuracy = 0.001,
+   alpha = 0.7) +
+   theme_classic()+
+    theme(legend.position = "none") +
+   stat_cor(aes(color = Diversity), method = "spearman", p.accuracy = 0.001)
+
+dens2a <- ggplot((filter(combined, metric == "Spa.Var")), aes(x = Composition, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  theme_void() +
+  theme(legend.key.size = unit(0.2, 'cm'), #change legend key size
+        legend.text = element_text(size=8)) #change legend text font size
+
+dens2b <- ggplot((filter(combined, metric == "Spa.Var")), aes(x = Function, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  theme_void() + 
+  theme(legend.position = "none") +
+  coord_flip()
+
+gg3 <- ggscatter(filter(combined, metric == "Resist"), x="Composition", y="Function", 
+   add = "reg.line",
+   color = "Diversity", 
+   cor.coef = F, 
+   cor.method = "spearman",
+   p.accuracy = 0.001,
+   alpha = 0.7) +
+   theme_classic()+
+   theme(legend.position = "none") +
+   stat_cor(aes(color = Diversity), method = "spearman", p.accuracy = 0.001)
+
+dens3a <- ggplot((filter(combined, metric == "Resist")), aes(x = Composition, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  theme_void() + 
+  theme(legend.position = "none")
+
+dens3b <- ggplot((filter(combined, metric == "Resist")), aes(x = Function, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  theme_void() + 
+  theme(legend.position = "none") +
+  coord_flip()
+
+gg4 <- ggscatter(filter(combined, metric == "Resilience"), x="Composition", y="Function", 
+   add = "reg.line",
+   color = "Diversity", 
+   cor.coef = F, 
+   cor.method = "spearman",
+   p.accuracy = 0.001,
+   alpha = 0.7) +
+   theme_classic()+
+   theme(legend.position = "none") +
+   stat_cor(aes(color = Diversity), method = "spearman", p.accuracy = 0.001)
+
+dens4a <- ggplot((filter(combined, metric == "Resilience")), aes(x = Composition, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  theme_void() + 
+  theme(legend.position = "none")
+
+dens4b <- ggplot((filter(combined, metric == "Resilience")), aes(x = Function, fill = Diversity)) + 
+  geom_density(size=0.4, alpha = 0.7) +  
+  theme_void() + 
+  theme(legend.position = "none") +
+  coord_flip()
+
+corr_plot <- dens1a + plot_spacer() + dens2a + plot_spacer() +
+  gg1 + dens1b + gg2 + dens2b +
+  dens3a + plot_spacer() + dens4a + plot_spacer() +
+  gg3 + dens3b + gg4 + dens4b +
+  plot_layout(ncol = 4, nrow = 4, widths = c(4, 1, 4, 1), heights = c(1, 4))
+```
+ 
+ Can also look at relationships between metrics.....
+ But not gonna include this in the paper.
+ 
+```{r}
+test<- rbind (x, x_Comp)  %>% 
+  mutate(Diversity = as.factor(Diversity))%>%
+  filter(metric != "Spa.Var") %>% 
+  spread(metric, value) %>% 
+  filter(Diversity != "D")
+
+combinations <- combn(c("Temp.Var", "Resist", "Resilience"), 2) %>%   # t = transpose
+  t() %>% 
+  data.frame() %>% 
+  crossing(c("Function", "Composition"), .) %>% 
+  rename_with(~ c("response","var_x","var_y"))
+
+corr_and_shapiro <- function( x, y, type, data_tab) {
+  data_tmp <- filter(data_tab, response == type)
+  x <- pull(data_tmp, x)
+  y <- pull(data_tmp, y)
+  tmp<-cor.test(x, y, method = "spearman")
+  norm.x<-shapiro.test(x)
+  norm.y<-shapiro.test(y)
+  
+  data.frame(
+    normality_x=norm.x$p.value,
+    normality_y=norm.y$p.value,
+    Pval = tmp$p.value,
+    Rho = tmp$estimate,
+    test = tmp$method
+    )
+}
+
+combinations %>% 
+  rowwise() %>% 
+  mutate(corr_and_shapiro(var_x, var_y, response, test))
+```
+ 
+plots
+ 
+```{r}
+test
+
+ggpairs(filter(test, response =="Composition"), mapping = aes(color = Diversity), columns = 6:8, method = "spearman")
+ggpairs(filter(test, response =="Function"), mapping = aes(color = Diversity), columns = 6:8, method = "spearman")
+
 
 ```
-
+ 
+ 
+ 
 # ANOVA and PERMANOVA results T12
 
 Results for full models with all possible interactions on macroalgae after 12 months of experiment (TAC):
